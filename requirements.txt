@@ -1,0 +1,85 @@
+# ============================
+# Secure RAG System
+# Requirements
+# Python 3.12+
+# ============================
+
+# FastAPI
+fastapi>=0.116.0
+uvicorn[standard]>=0.35.0
+
+# Configuration
+pydantic>=2.11.0
+pydantic-settings>=2.10.0
+python-dotenv>=1.1.0
+
+# Authentication
+python-jose[cryptography]>=3.5.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.2.0
+
+# Database
+sqlalchemy>=2.0.43
+
+# Encryption
+cryptography>=45.0.6
+
+# Embeddings
+sentence-transformers>=5.0.0
+
+# Vector Store
+faiss-cpu>=1.12.0
+
+# LangChain
+langchain>=0.3.27
+langchain-community>=0.3.27
+
+# LLM
+ollama>=0.5.3
+
+# Documents
+pypdf>=6.0.0
+python-docx>=1.2.0
+beautifulsoup4>=4.13.4
+lxml>=6.0.0
+
+# OCR
+pytesseract>=0.3.13
+Pillow>=11.3.0
+
+# YARA
+yara-python>=4.5.4
+
+# Antivirus
+pyclamd>=0.4.0
+
+# Utilities
+numpy>=2.3.2
+pandas>=2.3.1
+tqdm>=4.67.1
+
+# Security
+bleach>=6.2.0
+
+# Logging
+loguru>=0.7.3
+
+# Metrics
+prometheus-client>=0.22.1
+
+# GUI
+tk
+
+# Testing
+pytest>=8.4.1
+
+# Type hints
+typing_extensions>=4.14.1
+
+sentence-transformers>=5.0,<6
+numpy>=2.0,<3
+
+faiss-cpu>=1.8,<2
+cryptography>=45,<47
+
+argon2-cffi
