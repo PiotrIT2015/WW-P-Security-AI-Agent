@@ -1434,7 +1434,10 @@ This principle forms the foundation of the WW-P Secure RAG security architecture
 
 ## License
 
-License to be defined.
+License: Proprietary — All Rights Reserved
+This software is proprietary and confidential. No copying, modification, distribution, redistribution, 
+or commercial use is permitted without prior written authorization from the copyright holder. 
+Licensing inquiries: piotr.prochnicki@gmail.com
 
 ---
 
