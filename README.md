@@ -1370,9 +1370,9 @@ Current development status:
 | Encrypted FAISS         | 🟡     |
 | Secure Retriever        | ✅      |
 | Prompt Guard            | 🟡     |
-| Jailbreak Detector      | 🟡     |
-| PII Detector            | 🟡     |
-| Sanitizer               | 🟡     |
+| Jailbreak Detector      | ✅     |
+| PII Detector            | ✅     |
+| Sanitizer               | ✅     |
 | LLM integration         | 🟡     |
 | Monitoring              | 🟡     |
 | SQLite persistence      | 🟡     |
