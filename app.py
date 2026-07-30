@@ -51,6 +51,23 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from security.prompt_guard import (
+    PromptGuard,
+    PromptInjectionDetected,
+)
+
+from security.jailbreak_detector import (
+    JailbreakDetector,
+    JailbreakDetected,
+)
+
+from security.pii_detector import (
+    PIIDetector,
+)
+
+from security.sanitizer import (
+    Sanitizer,
+)
 
 # =============================================================================
 # Core configuration
@@ -288,6 +305,14 @@ class SecureRAGApplication:
         logger.info(
             "Secure RAG application initialized."
         )
+
+        self.prompt_guard = PromptGuard()
+
+        self.jailbreak_detector = JailbreakDetector()
+
+        self.pii_detector = PIIDetector()
+
+        self.sanitizer = Sanitizer()
 
     # =========================================================================
     # User management
@@ -666,54 +691,32 @@ class SecureRAGApplication:
     # =========================================================================
 
     def _apply_prompt_guard(
-        self,
-        query: str,
+            self,
+            query: str,
     ) -> str:
         """
-        Apply prompt injection/jailbreak protection.
-
-        The real implementation will be connected to:
-
-            security/prompt_guard.py
-            security/jailbreak_detector.py
+        Apply the complete prompt security pipeline.
         """
 
-        # ---------------------------------------------------------
-        # Defensive baseline
-        # ---------------------------------------------------------
+        try:
+            result = self.prompt_guard.validate(query)
+            result = self.jailbreak_detector.validate(result.prompt)
+            result = self.pii_detector.validate(result.prompt)
+            result = self.sanitizer.validate(result.prompt)
 
-        dangerous_patterns = (
+            return result.prompt
 
-            "ignore previous instructions",
+        except SecurityPipelineError:
+            raise
 
-            "ignore all previous instructions",
+        except Exception as exc:
+            logger.exception(
+                "Prompt security validation failed."
+            )
 
-            "system prompt",
-
-            "reveal your instructions",
-
-            "bypass security",
-
-        )
-
-        normalized = (
-            query.casefold()
-        )
-
-        for pattern in dangerous_patterns:
-
-            if pattern in normalized:
-
-                logger.warning(
-                    "Potential prompt injection detected."
-                )
-
-                raise SecurityPipelineError(
-                    "Zapytanie zostało odrzucone "
-                    "przez mechanizm bezpieczeństwa."
-                )
-
-        return query
+            raise SecurityPipelineError(
+                "Prompt rejected by the security pipeline."
+            ) from exc
 
     # =========================================================================
     # LLM generation
@@ -809,35 +812,24 @@ Rules:
     # =========================================================================
 
     def _sanitize_output(
-        self,
-        answer: str,
+            self,
+            output: str,
     ) -> str:
         """
-        Basic output sanitization.
-
-        Later this will delegate to:
-
-            security/sanitizer.py
-            security/pii_detector.py
+        Sanitize model output.
         """
 
-        if not isinstance(
-            answer,
-            str,
-        ):
+        if not output:
+            return ""
 
-            return str(
-                answer
-            )
+        sanitized = output.strip()
 
-        # Remove accidental NUL characters.
+        # TODO:
+        # sanitized = self.secret_detector.sanitize(sanitized)
+        sanitized = self.pii_detector.sanitize(sanitized)
+        # sanitized = self.output_sanitizer.sanitize(sanitized)
 
-        answer = answer.replace(
-            "\x00",
-            "",
-        )
-
-        return answer.strip()
+        return sanitized
 
     # =========================================================================
     # Query validation

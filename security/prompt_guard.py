@@ -1,258 +1,584 @@
 """
 security/prompt_guard.py
 
-Secure RAG
-Prompt Security Engine
+WW-P Secure RAG
 
-Stage 2.4A
+Prompt Injection Protection Module
+
+Version:
+5.1
+
+Features:
+- Regex based prompt injection detection
+- Risk scoring
+- Severity classification
+- Security policy enforcement
+- Blocking dangerous prompts
 
 Python 3.12+
 """
 
 from __future__ import annotations
 
-import re
-import unicodedata
-
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Iterable
+from typing import Pattern
+import logging
+import re
 
 
-# =============================================================================
-# Decision
-# =============================================================================
+logger = logging.getLogger(
+    "secure_rag.security.prompt_guard"
+)
 
 
-class Decision(Enum):
+# ============================================================
+# Exceptions
+# ============================================================
+
+
+class PromptGuardError(Exception):
     """
-    Final security decision.
+    Base Prompt Guard exception.
     """
 
-    ALLOW = "allow"
-
-    REVIEW = "review"
-
-    BLOCK = "block"
 
 
-# =============================================================================
-# Report
-# =============================================================================
+class PromptInjectionDetected(PromptGuardError):
+    """
+    Raised when malicious prompt is blocked.
+    """
+
+
+    def __init__(
+        self,
+        message: str,
+        result: "ScanResult | None" = None,
+    ) -> None:
+
+        super().__init__(
+            message
+        )
+
+        self.result = result
+
+
+
+# ============================================================
+# Severity
+# ============================================================
+
+
+class Severity(Enum):
+    """
+    Risk severity level.
+    """
+
+    LOW = "low"
+
+    MEDIUM = "medium"
+
+    HIGH = "high"
+
+    CRITICAL = "critical"
+
+
+
+# ============================================================
+# Detection Rule
+# ============================================================
 
 
 @dataclass(slots=True)
-class SecurityReport:
+class DetectionRule:
     """
-    Analysis result.
+    Single prompt injection rule.
     """
 
-    decision: Decision
 
-    risk_score: int
+    name: str
 
-    reasons: list[str] = field(default_factory=list)
+    pattern: str
 
-    matched_rules: list[str] = field(default_factory=list)
+    score: int
 
-    normalized_text: str = ""
+    severity: Severity
+
+    enabled: bool = True
+
+    compiled_pattern: Pattern[str] | None = None
 
 
-# =============================================================================
-# Prompt Guard
-# =============================================================================
+
+    def compile(
+        self,
+        ignore_case: bool = True,
+    ) -> None:
+        """
+        Compile regex.
+        """
+
+        flags = 0
+
+        if ignore_case:
+
+            flags |= re.IGNORECASE
+
+
+        self.compiled_pattern = re.compile(
+            self.pattern,
+            flags
+        )
+
+
+
+# ============================================================
+# Scan Result
+# ============================================================
+
+
+@dataclass(slots=True)
+class ScanResult:
+    """
+    Prompt analysis result.
+    """
+
+
+    prompt: str
+
+    score: int = 0
+
+    matched_rules: list[str] = field(
+        default_factory=list
+    )
+
+    severity: Severity = Severity.LOW
+
+    allowed: bool = True
+
+    reason: str = ""
+
+
+
+# ============================================================
+# Configuration
+# ============================================================
+
+
+@dataclass(slots=True)
+class PromptGuardConfig:
+    """
+    Prompt Guard configuration.
+    """
+
+
+    block_score: int = 70
+
+    warning_score: int = 30
+
+    ignore_case: bool = True
+
+    enable_logging: bool = True
+
+
+
+# ============================================================
+# Default Detection Rules
+# ============================================================
+
+
+def default_rules() -> list[DetectionRule]:
+    """
+    Built-in prompt injection rules.
+    """
+
+
+    return [
+
+        DetectionRule(
+            name="ignore_previous",
+            pattern=
+            r"ignore\s+(all\s+)?previous\s+instructions?",
+            score=35,
+            severity=Severity.HIGH,
+        ),
+
+
+        DetectionRule(
+            name="system_prompt",
+            pattern=
+            r"system\s+prompt",
+            score=30,
+            severity=Severity.HIGH,
+        ),
+
+
+        DetectionRule(
+            name="reveal_prompt",
+            pattern=
+            r"reveal.*prompt",
+            score=40,
+            severity=Severity.CRITICAL,
+        ),
+
+
+        DetectionRule(
+            name="developer_message",
+            pattern=
+            r"developer\s+message",
+            score=35,
+            severity=Severity.HIGH,
+        ),
+
+
+        DetectionRule(
+            name="forget_instructions",
+            pattern=
+            r"forget\s+all\s+instructions",
+            score=45,
+            severity=Severity.CRITICAL,
+        ),
+
+
+        DetectionRule(
+            name="override",
+            pattern=
+            r"override",
+            score=15,
+            severity=Severity.MEDIUM,
+        ),
+
+
+        DetectionRule(
+            name="bypass_security",
+            pattern=
+            r"bypass",
+            score=25,
+            severity=Severity.HIGH,
+        ),
+
+
+        DetectionRule(
+            name="disable_security",
+            pattern=
+            r"disable\s+security",
+            score=45,
+            severity=Severity.CRITICAL,
+        ),
+
+
+        DetectionRule(
+            name="act_as",
+            pattern=
+            r"act\s+as",
+            score=10,
+            severity=Severity.LOW,
+        ),
+
+
+        DetectionRule(
+            name="pretend",
+            pattern=
+            r"pretend\s+to\s+be",
+            score=10,
+            severity=Severity.LOW,
+        ),
+    ]
+
+
+
+# ============================================================
+# Prompt Guard Engine
+# ============================================================
 
 
 class PromptGuard:
-
     """
-    Prompt security engine.
-
-    This class performs:
-
-    - normalization
-
-    - rule matching
-
-    - risk scoring
-
-    - security decision
+    Prompt Injection Detection Engine.
     """
 
-    # ------------------------------------------------------
 
-    BLOCK_PATTERNS = {
 
-        "ignore previous instructions": 60,
-
-        "ignore all previous": 60,
-
-        "forget previous instructions": 60,
-
-        "developer message": 50,
-
-        "system prompt": 60,
-
-        "reveal your prompt": 60,
-
-        "show hidden instructions": 60,
-
-        "act as root": 50,
-
-        "bypass restrictions": 60,
-
-        "disable safety": 70,
-
-    }
-
-    # ------------------------------------------------------
-
-    REVIEW_PATTERNS = {
-
-        "simulate": 15,
-
-        "pretend": 10,
-
-        "override": 20,
-
-        "admin": 15,
-
-        "sudo": 15,
-
-        "confidential": 10,
-
-    }
-
-    # ------------------------------------------------------
-
-    def normalize(
+    def __init__(
         self,
-        text: str,
-    ) -> str:
+        config: PromptGuardConfig | None = None,
+    ) -> None:
+
+
+        self.config = (
+            config
+            or PromptGuardConfig()
+        )
+
+
+        self.rules: list[DetectionRule] = []
+
+
+        self._load_default_rules()
+
+
+        logger.info(
+            "PromptGuard initialized."
+        )
+
+
+
+    # --------------------------------------------------------
+
+    def _load_default_rules(
+        self,
+    ) -> None:
         """
-        Normalize text before analysis.
+        Load default security rules.
         """
 
-        text = unicodedata.normalize(
-            "NFKC",
-            text,
-        )
 
-        text = text.lower()
+        for rule in default_rules():
 
-        text = re.sub(
-            r"\s+",
-            " ",
-            text,
-        )
-
-        return text.strip()
-
-    # ------------------------------------------------------
-
-    def _match(
-        self,
-        text: str,
-        rules: dict[str, int],
-    ) -> tuple[int, list[str]]:
-
-        score = 0
-
-        matched = []
-
-        for pattern, value in rules.items():
-
-            if pattern in text:
-
-                score += value
-
-                matched.append(pattern)
-
-        return score, matched
-
-    # ------------------------------------------------------
-
-    def analyze(
-        self,
-        text: str,
-    ) -> SecurityReport:
-
-        normalized = self.normalize(text)
-
-        score = 0
-
-        reasons: list[str] = []
-
-        matched: list[str] = []
-
-        block_score, block_rules = self._match(
-            normalized,
-            self.BLOCK_PATTERNS,
-        )
-
-        review_score, review_rules = self._match(
-            normalized,
-            self.REVIEW_PATTERNS,
-        )
-
-        score += block_score
-        score += review_score
-
-        matched.extend(block_rules)
-        matched.extend(review_rules)
-
-        if block_rules:
-            reasons.append(
-                "Prompt injection indicators detected."
+            rule.compile(
+                self.config.ignore_case
             )
 
-        if review_rules:
-            reasons.append(
-                "Potentially suspicious instructions detected."
+            self.rules.append(
+                rule
             )
 
-        score = min(score, 100)
 
-        if score >= 70:
-
-            decision = Decision.BLOCK
-
-        elif score >= 30:
-
-            decision = Decision.REVIEW
-
-        else:
-
-            decision = Decision.ALLOW
-
-        return SecurityReport(
-
-            decision=decision,
-
-            risk_score=score,
-
-            reasons=reasons,
-
-            matched_rules=matched,
-
-            normalized_text=normalized,
-
+        logger.info(
+            "Loaded %d rules.",
+            len(self.rules)
         )
 
-    # ------------------------------------------------------
 
-    def is_allowed(
+
+    # --------------------------------------------------------
+
+    def register_rule(
         self,
-        text: str,
+        rule: DetectionRule,
+    ) -> None:
+        """
+        Add custom rule.
+        """
+
+
+        rule.compile(
+            self.config.ignore_case
+        )
+
+
+        self.rules.append(
+            rule
+        )
+
+
+
+    # --------------------------------------------------------
+
+    def get_rules(
+        self,
+    ) -> list[DetectionRule]:
+
+        return list(
+            self.rules
+        )
+
+
+
+    # --------------------------------------------------------
+
+    def _check_rule(
+        self,
+        rule: DetectionRule,
+        prompt: str,
     ) -> bool:
+        """
+        Check single rule.
+        """
 
-        report = self.analyze(text)
 
-        return report.decision is Decision.ALLOW
+        if not rule.enabled:
+
+            return False
 
 
-# =============================================================================
-# Global instance
-# =============================================================================
+        if rule.compiled_pattern is None:
 
-prompt_guard = PromptGuard()
+            rule.compile(
+                self.config.ignore_case
+            )
+
+
+        return bool(
+            rule.compiled_pattern.search(
+                prompt
+            )
+        )
+
+
+
+    # --------------------------------------------------------
+
+    def _calculate_severity(
+        self,
+        score: int,
+    ) -> Severity:
+        """
+        Convert score to severity.
+        """
+
+
+        if score >= 80:
+
+            return Severity.CRITICAL
+
+
+        if score >= 40:
+
+            return Severity.HIGH
+
+
+        if score >= 20:
+
+            return Severity.MEDIUM
+
+
+        return Severity.LOW
+
+
+
+    # --------------------------------------------------------
+
+    def scan(
+        self,
+        prompt: str,
+    ) -> ScanResult:
+        """
+        Analyze prompt.
+        """
+
+
+        if not isinstance(
+            prompt,
+            str
+        ):
+
+            raise TypeError(
+                "Prompt must be string."
+            )
+
+
+        result = ScanResult(
+            prompt=prompt
+        )
+
+
+        for rule in self.rules:
+
+            if self._check_rule(
+                rule,
+                prompt
+            ):
+
+
+                result.score += (
+                    rule.score
+                )
+
+
+                result.matched_rules.append(
+                    rule.name
+                )
+
+
+
+        result.severity = (
+            self._calculate_severity(
+                result.score
+            )
+        )
+
+
+
+        if result.score >= (
+            self.config.warning_score
+        ):
+
+            result.reason = (
+                "Suspicious prompt detected."
+            )
+
+
+
+        if self.config.enable_logging:
+
+            logger.info(
+                "Prompt scan: score=%s severity=%s rules=%s",
+                result.score,
+                result.severity.value,
+                result.matched_rules,
+            )
+
+
+        return result
+
+
+
+    # --------------------------------------------------------
+
+    def validate(
+        self,
+        prompt: str,
+    ) -> ScanResult:
+        """
+        Validate prompt against security policy.
+        """
+
+
+        result = self.scan(
+            prompt
+        )
+
+
+        if result.score >= (
+            self.config.block_score
+        ):
+
+
+            logger.warning(
+                "Prompt blocked: %s",
+                result.matched_rules
+            )
+
+
+            raise PromptInjectionDetected(
+                message=
+                "Prompt blocked by security policy.",
+                result=result,
+            )
+
+
+        return result
+
+
+
+    # --------------------------------------------------------
+
+    def is_suspicious(
+        self,
+        prompt: str,
+    ) -> bool:
+        """
+        Check if prompt requires review.
+        """
+
+
+        result = self.scan(
+            prompt
+        )
+
+
+        return (
+            result.score
+            >= self.config.warning_score
+        )
