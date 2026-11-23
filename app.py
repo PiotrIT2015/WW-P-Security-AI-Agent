@@ -57,10 +57,14 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import numpy as np
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from documents.extractors.base import ExtractedDocument
+from documents.chunker import DocumentChunker
 
 
 # =============================================================================
@@ -533,13 +537,22 @@ class SecureRAGApplication:
         policy: DocumentACL,
     ) -> None:
 
-        self.permission_manager.add_policy(
-            policy
-        )
+        if not isinstance(policy, DocumentACL):
+            raise TypeError(
+                "policy must be an instance of DocumentACL"
+            )
+
+        if self.permission_manager is None:
+            raise RuntimeError(
+                "PermissionManager is not initialized."
+            )
+
+        self.permission_manager.add_policy(policy)
 
         logger.info(
-            "ACL policy registered: document=%s",
+            "ACL policy registered: document=%s classification=%s",
             policy.document_id,
+            policy.classification,
         )
 
     # =========================================================================
@@ -1008,6 +1021,386 @@ Security rules:
 
         return query
 
+# =============================================================================
+# Demo document ingestion
+# =============================================================================
+
+
+def ingest_demo_document(
+    app: SecureRAGApplication,
+) -> int:
+    """
+    Ingest the demo document into encrypted FAISS.
+
+    Pipeline:
+        Document
+          -> Chunking
+          -> ACL metadata
+          -> Embeddings
+          -> Encrypted FAISS
+          -> ACL registration
+
+    Returns:
+        Number of newly indexed chunks.
+    """
+
+    logger.info(
+        "Starting demo document ingestion."
+    )
+
+    # =====================================================================
+    # 1. Validate application components
+    # =====================================================================
+
+    if app.demo_document is None:
+        raise ApplicationConfigurationError(
+            "Demo document is not loaded."
+        )
+
+    if app.embedder is None:
+        raise ApplicationConfigurationError(
+            "Embedder is not configured."
+        )
+
+    if app.vector_store is None:
+        raise ApplicationConfigurationError(
+            "Encrypted FAISS is not configured."
+        )
+
+    if app.permission_manager is None:
+        raise ApplicationConfigurationError(
+            "PermissionManager is not configured."
+        )
+
+    if app.auth_manager is None:
+        raise ApplicationConfigurationError(
+            "AuthenticationManager is not configured."
+        )
+
+    # =====================================================================
+    # 2. Validate document content
+    # =====================================================================
+
+    content = app.demo_document.get(
+        "content",
+        "",
+    )
+
+    if not isinstance(content, str) or not content.strip():
+        raise ApplicationConfigurationError(
+            "Demo document content is empty or invalid."
+        )
+
+    metadata = app.demo_document.get(
+        "metadata",
+        {},
+    )
+
+    if not isinstance(metadata, dict):
+        raise ApplicationConfigurationError(
+            "Demo document metadata is invalid."
+        )
+
+    # =====================================================================
+    # 3. Read document security configuration
+    # =====================================================================
+
+    owner_username = metadata.get(
+        "owner",
+        "piotr",
+    )
+
+    classification = metadata.get(
+        "classification",
+        "internal",
+    )
+
+    allowed_groups = metadata.get(
+        "groups",
+        ["security"],
+    )
+
+    allowed_roles = metadata.get(
+        "allowed_roles",
+        ["analyst", "admin"],
+    )
+
+    external_document_id = metadata.get(
+        "document_id",
+        "security-001",
+    )
+
+    if not isinstance(owner_username, str) or not owner_username.strip():
+        raise ApplicationConfigurationError(
+            "Document owner is invalid."
+        )
+
+    if not isinstance(classification, str) or not classification.strip():
+        raise ApplicationConfigurationError(
+            "Document classification is invalid."
+        )
+
+    if not isinstance(external_document_id, str):
+        raise ApplicationConfigurationError(
+            "External document ID is invalid."
+        )
+
+    # Normalize ACL collections.
+
+    if not isinstance(
+        allowed_groups,
+        (list, tuple, set),
+    ):
+        raise ApplicationConfigurationError(
+            "Allowed groups must be a list, tuple or set."
+        )
+
+    if not isinstance(
+        allowed_roles,
+        (list, tuple, set),
+    ):
+        raise ApplicationConfigurationError(
+            "Allowed roles must be a list, tuple or set."
+        )
+
+    if not all(
+        isinstance(item, str) and item.strip()
+        for item in allowed_groups
+    ):
+        raise ApplicationConfigurationError(
+            "Allowed groups contain invalid values."
+        )
+
+    if not all(
+        isinstance(item, str) and item.strip()
+        for item in allowed_roles
+    ):
+        raise ApplicationConfigurationError(
+            "Allowed roles contain invalid values."
+        )
+
+    allowed_groups = {
+        item.strip()
+        for item in allowed_groups
+    }
+
+    allowed_roles = {
+        item.strip()
+        for item in allowed_roles
+    }
+
+    # =====================================================================
+    # 4. Resolve document owner
+    # =====================================================================
+
+    owner_user = app.auth_manager.get_user(
+        owner_username
+    )
+
+    if owner_user is None:
+        raise ApplicationConfigurationError(
+            f"ACL owner '{owner_username}' does not exist."
+        )
+
+    owner_id = str(
+        owner_user.user_id
+    )
+
+    if not owner_id:
+        raise ApplicationConfigurationError(
+            "Document owner has an invalid user ID."
+        )
+
+    # =====================================================================
+    # 5. Prepare extracted document
+    # =====================================================================
+
+    source = Path(
+        metadata.get(
+            "source",
+            "security_monitoring.txt",
+        )
+    )
+
+    extracted_document = ExtractedDocument(
+        text=content,
+        pages=1,
+        source=source,
+        metadata={
+            "classification": classification,
+            "owner": owner_username,
+        },
+    )
+
+    # =====================================================================
+    # 6. Split document into chunks
+    # =====================================================================
+
+    chunker = DocumentChunker(
+        chunk_size=getattr(
+            settings,
+            "CHUNK_SIZE",
+            1200,
+        ),
+        overlap=getattr(
+            settings,
+            "CHUNK_OVERLAP",
+            200,
+        ),
+        min_chunk_size=100,
+    )
+
+    chunk_metadata = {
+        "owner": owner_username,
+        "owner_id": owner_id,
+        "classification": classification,
+        "allowed_groups": ",".join(
+            sorted(allowed_groups)
+        ),
+        "allowed_roles": ",".join(
+            sorted(allowed_roles)
+        ),
+        "external_document_id": external_document_id,
+    }
+
+    chunks = chunker.chunk(
+        extracted_document,
+        metadata=chunk_metadata,
+    )
+
+    if not chunks:
+        raise ApplicationConfigurationError(
+            "Document chunker returned no chunks."
+        )
+
+    document_id = chunks[0].document_id
+
+    # Verify that all chunks belong to the same document.
+
+    if any(
+        chunk.document_id != document_id
+        for chunk in chunks
+    ):
+        raise ApplicationConfigurationError(
+            "Document chunks contain inconsistent document IDs."
+        )
+
+    # =====================================================================
+    # 7. Create document ACL policy
+    # =====================================================================
+
+    policy = DocumentACL(
+        document_id=document_id,
+        owner_id=owner_id,
+        allowed_groups=allowed_groups,
+        allowed_roles=allowed_roles,
+        classification=classification,
+    )
+
+    # =====================================================================
+    # 8. Generate embeddings
+    # =====================================================================
+
+    embedding_result = app.embedder.embed_chunks(
+        chunks
+    )
+
+    expected_chunk_ids = [
+        chunk.chunk_id
+        for chunk in chunks
+    ]
+
+    if embedding_result.chunk_ids != expected_chunk_ids:
+        raise ApplicationConfigurationError(
+            "Embedding chunk IDs do not match input chunk IDs."
+        )
+
+    if len(embedding_result.vectors) != len(chunks):
+        raise ApplicationConfigurationError(
+            "Embedding count does not match chunk count."
+        )
+
+    if embedding_result.dimension != app.vector_store.dimension:
+        raise ApplicationConfigurationError(
+            "Embedding dimension does not match FAISS dimension."
+        )
+
+    # =====================================================================
+    # 9. Identify chunks that are not yet indexed
+    # =====================================================================
+
+    new_chunks = []
+    new_vectors = []
+
+    for index, chunk in enumerate(chunks):
+
+        existing_metadata = app.vector_store.get_metadata(
+            chunk.chunk_id
+        )
+
+        if existing_metadata is not None:
+            continue
+
+        new_chunks.append(chunk)
+
+        new_vectors.append(
+            embedding_result.vectors[index]
+        )
+
+    # =====================================================================
+    # 10. Register ACL policy
+    # =====================================================================
+
+    app.permission_manager.add_policy(
+        policy
+    )
+
+    # =====================================================================
+    # 11. Insert new vectors into encrypted FAISS
+    # =====================================================================
+
+    if new_chunks:
+
+        vectors = np.asarray(
+            new_vectors,
+            dtype=np.float32,
+        )
+
+        if vectors.shape != (
+            len(new_chunks),
+            app.vector_store.dimension,
+        ):
+            raise ApplicationConfigurationError(
+                "Invalid embedding matrix shape."
+            )
+
+        app.vector_store.add_chunks(
+            new_chunks,
+            vectors,
+        )
+
+        app.vector_store.save()
+
+    # =====================================================================
+    # 12. Log ingestion result
+    # =====================================================================
+
+    logger.info(
+        "Demo document ingestion completed: "
+        "document_id=%s "
+        "owner=%s "
+        "classification=%s "
+        "new_chunks=%d "
+        "total_vectors=%d",
+        document_id,
+        owner_username,
+        classification,
+        len(new_chunks),
+        app.vector_store.count,
+    )
+
+    return len(new_chunks)
+
 
 # =============================================================================
 # Secure Retrieval Configuration
@@ -1016,14 +1409,18 @@ Security rules:
 def configure_secure_retrieval(
     app: SecureRAGApplication,
 ) -> None:
-
     """
-    Initialize and connect:
+    Configure the complete secure retrieval pipeline.
 
-        Embedder
-        Encrypted FAISS
-        PermissionManager
-        SecureRetriever
+    Initialization order:
+        1. Encryption key
+        2. Embedder
+        3. Encrypted FAISS
+        4. Load existing index
+        5. SecureRetriever
+        6. Demo document
+        7. Document ingestion
+        8. ACL registration
     """
 
     logger.info(
@@ -1031,19 +1428,16 @@ def configure_secure_retrieval(
     )
 
     if settings is None:
-
         raise ApplicationConfigurationError(
             "Configuration module unavailable."
         )
 
     if Embedder is None:
-
         raise ApplicationConfigurationError(
             "Embedder module unavailable."
         )
 
     if EncryptedFAISS is None:
-
         raise ApplicationConfigurationError(
             "Encrypted FAISS module unavailable."
         )
@@ -1055,25 +1449,20 @@ def configure_secure_retrieval(
     configured_key = settings.AES_KEY
 
     if not configured_key:
-
         raise ApplicationConfigurationError(
             "AES_KEY is missing."
         )
 
     if configured_key.startswith("CHANGE_"):
-
         raise ApplicationConfigurationError(
-            "AES_KEY contains a placeholder value."
+            "AES_KEY contains a placeholder."
         )
 
     try:
-
         encryption_key = EncryptedFAISS.key_from_base64(
             configured_key
         )
-
     except Exception as error:
-
         raise ApplicationConfigurationError(
             "Invalid AES_KEY."
         ) from error
@@ -1083,7 +1472,6 @@ def configure_secure_retrieval(
     # ---------------------------------------------------------
 
     try:
-
         embedder = Embedder(
             model_name=settings.EMBEDDING_MODEL
         )
@@ -1091,7 +1479,6 @@ def configure_secure_retrieval(
         embedding_dimension = embedder.dimension()
 
         if embedding_dimension <= 0:
-
             raise ValueError(
                 "Invalid embedding dimension."
             )
@@ -1107,7 +1494,6 @@ def configure_secure_retrieval(
         )
 
     except Exception as error:
-
         raise ApplicationConfigurationError(
             "Unable to initialize embedding model."
         ) from error
@@ -1130,13 +1516,9 @@ def configure_secure_retrieval(
     )
 
     vector_store = EncryptedFAISS(
-
         storage_path=storage_path,
-
         key=encryption_key,
-
         dimension=embedding_dimension,
-
     )
 
     # ---------------------------------------------------------
@@ -1144,9 +1526,7 @@ def configure_secure_retrieval(
     # ---------------------------------------------------------
 
     if storage_path.exists():
-
         try:
-
             vector_store.load()
 
             logger.info(
@@ -1155,71 +1535,97 @@ def configure_secure_retrieval(
             )
 
         except Exception as error:
-
             raise ApplicationConfigurationError(
                 "Unable to load encrypted FAISS index. "
-                "Check encryption key and index compatibility."
+                "Check AES_KEY and index integrity."
             ) from error
 
     else:
-
         logger.info(
-            "No existing FAISS index. "
+            "No existing index. "
             "Initialized an empty vector store."
         )
 
     # ---------------------------------------------------------
-    # 5. Secure Retriever
+    # 5. Configure SecureRetriever
     # ---------------------------------------------------------
 
     retriever = SecureRetriever(
-
         embedder=embedder_adapter,
-
         vector_store=vector_store,
-
         permission_manager=app.permission_manager,
-
         default_top_k=settings.TOP_K,
-
         authorization_multiplier=4,
-
     )
 
-    # ---------------------------------------------------------
-    # 6. Connect components
-    # ---------------------------------------------------------
-
-    app.set_retriever(
-        retriever
-    )
+    app.set_retriever(retriever)
 
     app.embedder = embedder
-
     app.vector_store = vector_store
 
     # ---------------------------------------------------------
-    # 7. Load demo document and attach metadata
+    # 6. Load demo document
     # ---------------------------------------------------------
 
     app.demo_document = load_demo_document()
 
-    if app.demo_document is not None:
-        logger.info(
-            "Demo document metadata prepared: document_id=%s owner=%s "
-            "groups=%s allowed_roles=%s",
-            app.demo_document["metadata"]["document_id"],
-            app.demo_document["metadata"]["owner"],
-            app.demo_document["metadata"]["groups"],
-            app.demo_document["metadata"]["allowed_roles"],
-        )
-        logger.warning(
-            "Document is loaded with metadata but is not yet indexed. "
-            "Connect this payload to the project's ingestion/FAISS API."
+    if app.demo_document is None:
+        raise ApplicationConfigurationError(
+            "Demo document could not be loaded."
         )
 
     logger.info(
-        "Secure retriever configured."
+        "Demo document loaded: source=%s owner=%s",
+        DEMO_DOCUMENT_PATH.name,
+        DEMO_DOCUMENT_METADATA["owner"],
+    )
+
+    # ---------------------------------------------------------
+    # 7. Ingest document and register ACL
+    # ---------------------------------------------------------
+
+    indexed_chunks = ingest_demo_document(app)
+
+    logger.info(
+        "Demo ingestion completed: new_chunks=%d total_vectors=%d",
+        indexed_chunks,
+        app.vector_store.count,
+    )
+
+    # ---------------------------------------------------------
+    # 8. Verify ACL registration
+    # ---------------------------------------------------------
+
+    content = app.demo_document["content"]
+
+    expected_document = ExtractedDocument(
+        text=content,
+        pages=1,
+        source=DEMO_DOCUMENT_PATH,
+        metadata={
+            "filename": DEMO_DOCUMENT_PATH.name,
+            "classification": str(
+                DEMO_DOCUMENT_METADATA["classification"]
+            ).casefold(),
+        },
+    )
+
+    expected_document_id = DocumentChunker._document_id(
+        expected_document
+    )
+
+    registered_policy = app.permission_manager.get_policy(
+        expected_document_id
+    )
+
+    if registered_policy is None:
+        raise ApplicationConfigurationError(
+            "Demo document ACL policy was not registered."
+        )
+
+    logger.info(
+        "ACL policy verified: document_id=%s",
+        expected_document_id,
     )
 
     logger.info(
