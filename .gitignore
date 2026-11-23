@@ -17,6 +17,10 @@ __pycache__/
 .vscode/
 .idea/
 
+# Encryption keys
+keys/
+*.key
+
 # Reports
 reports/incidents/*
 reports/summaries/*
