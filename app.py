@@ -2,7 +2,53 @@
 app.py
 
 WW-P Secure RAG 1.0.0
+=====================
+
 Main application entry point.
+
+Security architecture:
+
+    User
+      |
+      v
+    Authentication
+      |
+      v
+    UserContext
+      |
+      v
+    PromptGuard
+      |
+      v
+    JailbreakDetector
+      |
+      v
+    PIIDetector
+      |
+      v
+    Sanitizer
+      |
+      v
+    SecureRetriever
+      |
+      +--> Embedder
+      |
+      +--> Encrypted FAISS
+      |
+      +--> PermissionManager
+      |
+      v
+    Authorized Context
+      |
+      v
+    LLM
+      |
+      v
+    Output Sanitization
+      |
+      v
+    User
+
 Python 3.12+
 """
 
@@ -15,6 +61,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
 
 # =============================================================================
 # Configuration
@@ -48,8 +95,13 @@ from security.jailbreak_detector import (
     JailbreakDetected,
 )
 
-from security.pii_detector import PIIDetector
-from security.sanitizer import Sanitizer
+from security.pii_detector import (
+    PIIDetector,
+)
+
+from security.sanitizer import (
+    Sanitizer,
+)
 
 
 # =============================================================================
@@ -88,31 +140,50 @@ from retrieval.retriever import (
 
 
 # =============================================================================
-# Document ingestion
-# =============================================================================
-
-from documents.chunker import DocumentChunker
-from documents.extractors import ExtractedDocument
-
-
-# =============================================================================
 # Optional modules
 # =============================================================================
 
 try:
-    from embeddings.embedder import Embedder
+
+    from embeddings.embedder import (
+        Embedder,
+    )
+
 except ImportError:
+
     Embedder = None
 
-try:
-    from vectorstore.encrypted_faiss import EncryptedFAISS
-except ImportError:
-    EncryptedFAISS = None
 
 try:
-    from llm.generator import LLMGenerator
+
+    from vectorstore.encrypted_faiss import (
+        EncryptedFAISS,
+    )
+
 except ImportError:
+
+    EncryptedFAISS = None
+
+
+try:
+
+    from llm import (
+        LLMGenerator,
+        OllamaClient,
+        OllamaClientError,
+    )
+
+except ImportError as import_error:
+
     LLMGenerator = None
+    OllamaClient = None
+    OllamaClientError = None
+
+    logger_import_error = import_error
+
+else:
+
+    logger_import_error = None
 
 
 # =============================================================================
@@ -120,22 +191,32 @@ except ImportError:
 # =============================================================================
 
 logging.basicConfig(
+
     level=logging.INFO,
+
     format=(
         "%(asctime)s | "
         "%(levelname)s | "
         "%(name)s | "
         "%(message)s"
     ),
+
 )
 
-logger = logging.getLogger("secure_rag")
+logger = logging.getLogger(
+    "secure_rag"
+)
 
 
 # =============================================================================
-# Demo document
+# Demo document and metadata
 # =============================================================================
 
+# The document is expected at:
+# secure-rag/data/documents/security_monitoring.txt
+#
+# Metadata is kept separate from the plain-text file. This makes it possible
+# to pass the same metadata to the chunking, vector-store and ACL layers.
 DEMO_DOCUMENT_PATH = (
     Path(__file__).resolve().parent
     / "data"
@@ -144,10 +225,8 @@ DEMO_DOCUMENT_PATH = (
 )
 
 DEMO_DOCUMENT_METADATA: dict[str, Any] = {
-    "owner_username": os.getenv(
-        "SECURE_RAG_DEMO_USERNAME",
-        "piotr",
-    ),
+    "document_id": "security-001",
+    "owner": "piotr",
     "groups": ["security"],
     "allowed_roles": ["analyst", "admin"],
     "classification": "internal",
@@ -155,20 +234,18 @@ DEMO_DOCUMENT_METADATA: dict[str, Any] = {
 
 
 def load_demo_document() -> dict[str, Any] | None:
-
     """
-    Load the demo document.
+    Load the demo document and attach its metadata.
 
-    The document is prepared for ingestion.
+    Returns None when the file is not present. This function prepares the
+    document for ingestion; it does not itself create embeddings or insert
+    vectors into FAISS.
     """
-
     if not DEMO_DOCUMENT_PATH.is_file():
-
         logger.warning(
             "Demo document not found: %s",
             DEMO_DOCUMENT_PATH,
         )
-
         return None
 
     content = DEMO_DOCUMENT_PATH.read_text(
@@ -176,12 +253,10 @@ def load_demo_document() -> dict[str, Any] | None:
     ).strip()
 
     if not content:
-
         logger.warning(
             "Demo document is empty: %s",
             DEMO_DOCUMENT_PATH,
         )
-
         return None
 
     document = {
@@ -190,8 +265,8 @@ def load_demo_document() -> dict[str, Any] | None:
     }
 
     logger.info(
-        "Demo document loaded: source=%s classification=%s",
-        DEMO_DOCUMENT_PATH.name,
+        "Demo document loaded: document_id=%s classification=%s",
+        document["metadata"]["document_id"],
         document["metadata"]["classification"],
     )
 
@@ -221,6 +296,14 @@ class SecurityPipelineError(SecureRAGError):
 class EmbedderAdapter:
     """
     Adapter between Embedder and SecureRetriever.
+
+    SecureRetriever expects:
+
+        embed_query(text)
+
+    Existing Embedder exposes:
+
+        embed_text(text)
     """
 
     def __init__(
@@ -235,7 +318,9 @@ class EmbedderAdapter:
         text: str,
     ):
 
-        return self._embedder.embed_query(text)
+        return self._embedder.embed_text(
+            text
+        )
 
 
 # =============================================================================
@@ -247,11 +332,16 @@ class EmbedderAdapter:
     frozen=True,
 )
 class RAGResponse:
+    """Final RAG response."""
 
     query: str
+
     answer: str
+
     retrieved_chunks: int
+
     denied_chunks: int
+
     user_id: str
 
 
@@ -260,6 +350,18 @@ class RAGResponse:
 # =============================================================================
 
 class SecureRAGApplication:
+    """
+    Main application coordinator.
+
+    Responsibilities:
+
+        Authentication
+        Authorization
+        Prompt security
+        Secure retrieval
+        LLM generation
+        Output sanitization
+    """
 
     def __init__(
         self,
@@ -276,25 +378,43 @@ class SecureRAGApplication:
             APP_VERSION,
         )
 
+        # Authentication
+
         self.auth_manager = (
-            auth_manager or AuthenticationManager()
+            auth_manager
+            or AuthenticationManager()
         )
 
+        # Authorization
+
         self.permission_manager = (
-            permission_manager or PermissionManager()
+            permission_manager
+            or PermissionManager()
         )
+
+        # Retrieval
 
         self.retriever = retriever
 
         self.embedder = None
+
         self.vector_store = None
+
+        # Loaded source document + metadata for the ingestion stage.
         self.demo_document = None
+
+        # LLM
 
         self.llm = llm
 
+        # Security components
+
         self.prompt_guard = PromptGuard()
+
         self.jailbreak_detector = JailbreakDetector()
+
         self.pii_detector = PIIDetector()
+
         self.sanitizer = Sanitizer()
 
         logger.info(
@@ -312,15 +432,18 @@ class SecureRAGApplication:
         *,
         roles: set[str] | None = None,
         groups: set[str] | None = None,
-        user_id: str | None = None,
     ):
 
         return self.auth_manager.create_user(
+
             username=username,
+
             password=password,
-            user_id=user_id,
+
             roles=roles,
+
             groups=groups,
+
         )
 
     # =========================================================================
@@ -341,8 +464,11 @@ class SecureRAGApplication:
         try:
 
             context, token = self.auth_manager.authenticate(
+
                 username,
+
                 password,
+
             )
 
         except InvalidCredentialsError:
@@ -383,8 +509,11 @@ class SecureRAGApplication:
         try:
 
             return self.auth_manager.validate_session(
+
                 session_id,
+
                 token,
+
             )
 
         except SessionError:
@@ -404,7 +533,9 @@ class SecureRAGApplication:
         policy: DocumentACL,
     ) -> None:
 
-        self.permission_manager.add_policy(policy)
+        self.permission_manager.add_policy(
+            policy
+        )
 
         logger.info(
             "ACL policy registered: document=%s",
@@ -420,7 +551,10 @@ class SecureRAGApplication:
         retriever: SecureRetriever,
     ) -> None:
 
-        if not isinstance(retriever, SecureRetriever):
+        if not isinstance(
+            retriever,
+            SecureRetriever,
+        ):
 
             raise TypeError(
                 "retriever must be SecureRetriever."
@@ -459,20 +593,35 @@ class SecureRAGApplication:
         top_k: int = 5,
     ) -> RAGResponse:
 
-        if not isinstance(user, UserContext):
+        if not isinstance(
+            user,
+            UserContext,
+        ):
 
             raise SecurityPipelineError(
                 "Authenticated UserContext is required."
             )
 
-        query = self._validate_query(query)
+        query = self._validate_query(
+            query
+        )
 
         logger.info(
             "RAG query started: user=%s",
             user.user_id,
         )
 
-        safe_query = self._apply_prompt_guard(query)
+        # -----------------------------------------------------
+        # STEP 1 - Input security
+        # -----------------------------------------------------
+
+        safe_query = self._apply_prompt_guard(
+            query
+        )
+
+        # -----------------------------------------------------
+        # STEP 2 - Retriever availability
+        # -----------------------------------------------------
 
         if self.retriever is None:
 
@@ -480,12 +629,20 @@ class SecureRAGApplication:
                 "SecureRetriever is not configured."
             )
 
+        # -----------------------------------------------------
+        # STEP 3 - Secure retrieval
+        # -----------------------------------------------------
+
         try:
 
             retrieval = self.retriever.retrieve(
+
                 safe_query,
+
                 user,
+
                 top_k=top_k,
+
             )
 
         except RetrievalError as error:
@@ -498,6 +655,10 @@ class SecureRAGApplication:
                 "Secure retrieval failed."
             ) from error
 
+        # -----------------------------------------------------
+        # STEP 4 - No authorized context
+        # -----------------------------------------------------
+
         if retrieval.empty:
 
             logger.info(
@@ -506,44 +667,79 @@ class SecureRAGApplication:
             )
 
             return RAGResponse(
+
                 query=query,
+
                 answer=(
                     "Nie znaleziono informacji, "
                     "do których użytkownik ma uprawnienia."
                 ),
+
                 retrieved_chunks=0,
+
                 denied_chunks=retrieval.denied_count,
+
                 user_id=user.user_id,
+
             )
+
+        # -----------------------------------------------------
+        # STEP 5 - Authorized context
+        # -----------------------------------------------------
 
         context = retrieval.context
 
+        # -----------------------------------------------------
+        # STEP 6 - LLM generation
+        # -----------------------------------------------------
+
         answer = self._generate_answer(
+
             query=safe_query,
+
             context=context,
+
             user=user,
+
         )
 
-        answer = self._sanitize_output(answer)
+        # -----------------------------------------------------
+        # STEP 7 - Output sanitization
+        # -----------------------------------------------------
+
+        answer = self._sanitize_output(
+            answer
+        )
 
         logger.info(
+
             "RAG query completed: "
             "user=%s retrieved=%d denied=%d",
+
             user.user_id,
+
             retrieval.authorized_count,
+
             retrieval.denied_count,
+
         )
 
         return RAGResponse(
+
             query=query,
+
             answer=answer,
+
             retrieved_chunks=retrieval.authorized_count,
+
             denied_chunks=retrieval.denied_count,
+
             user_id=user.user_id,
+
         )
 
     # =========================================================================
-    # Prompt security
+    # Prompt security pipeline
     # =========================================================================
 
     def _apply_prompt_guard(
@@ -551,11 +747,38 @@ class SecureRAGApplication:
         query: str,
     ) -> str:
 
+        """
+        Complete input security pipeline.
+
+        Pipeline:
+
+            PromptGuard
+                |
+                v
+            JailbreakDetector
+                |
+                v
+            PIIDetector
+                |
+                v
+            Sanitizer
+        """
+
         try:
 
-            prompt_result = self.prompt_guard.validate(query)
+            # -------------------------------------------------
+            # 1. Prompt injection detection
+            # -------------------------------------------------
+
+            prompt_result = self.prompt_guard.validate(
+                query
+            )
 
             safe_query = prompt_result.prompt
+
+            # -------------------------------------------------
+            # 2. Jailbreak detection
+            # -------------------------------------------------
 
             jailbreak_result = self.jailbreak_detector.validate(
                 safe_query
@@ -563,7 +786,13 @@ class SecureRAGApplication:
 
             safe_query = jailbreak_result.prompt
 
-            pii_result = self.pii_detector.scan(safe_query)
+            # -------------------------------------------------
+            # 3. PII detection and masking
+            # -------------------------------------------------
+
+            pii_result = self.pii_detector.scan(
+                safe_query
+            )
 
             if pii_result.detected:
 
@@ -573,6 +802,10 @@ class SecureRAGApplication:
                 )
 
             safe_query = pii_result.sanitized_text
+
+            # -------------------------------------------------
+            # 4. Input sanitization
+            # -------------------------------------------------
 
             safe_query = self.sanitizer.sanitize_input(
                 safe_query
@@ -616,12 +849,20 @@ class SecureRAGApplication:
         user: UserContext,
     ) -> str:
 
+        """
+        Generate answer.
+
+        The LLM receives only ACL-authorized context.
+        """
+
         if self.llm is None:
 
-            return (
-                "LLM nie jest jeszcze skonfigurowany.\n\n"
-                "Autoryzowany kontekst:\n\n"
-                f"{context}"
+            # Never expose retrieved document text as a fallback response.
+            # The context is an internal, ACL-filtered payload and must only
+            # be passed to the configured generation component.
+            raise ApplicationConfigurationError(
+                "LLM generator is not configured. "
+                "Retrieved context will not be exposed."
             )
 
         system_prompt = """
@@ -640,18 +881,30 @@ Security rules:
 """
 
         prompt = (
+
             f"{system_prompt}\n\n"
-            f"AUTHORIZED CONTEXT:\n{context}\n\n"
-            f"USER QUESTION:\n{query}\n\n"
+
+            f"AUTHORIZED CONTEXT:\n"
+            f"{context}\n\n"
+
+            f"USER QUESTION:\n"
+            f"{query}\n\n"
+
             f"ANSWER:"
+
         )
 
         try:
 
-            if hasattr(self.llm, "generate"):
+            if hasattr(
+                self.llm,
+                "generate",
+            ):
 
                 return str(
-                    self.llm.generate(prompt)
+                    self.llm.generate(
+                        prompt
+                    )
                 )
 
             if callable(self.llm):
@@ -684,8 +937,22 @@ Security rules:
         output: str,
     ) -> str:
 
+        """
+        Sanitize LLM output.
+
+        Pipeline:
+
+            PII masking
+                |
+                v
+            Sanitizer
+        """
+
         if not output:
+
             return ""
+
+        # Remove sensitive information.
 
         pii_result = self.pii_detector.scan(
             output.strip()
@@ -698,6 +965,8 @@ Security rules:
             )
 
         sanitized = pii_result.sanitized_text
+
+        # Sanitize final output.
 
         sanitized = self.sanitizer.sanitize_output(
             sanitized
@@ -714,7 +983,10 @@ Security rules:
         query: str,
     ) -> str:
 
-        if not isinstance(query, str):
+        if not isinstance(
+            query,
+            str,
+        ):
 
             raise ValueError(
                 "Query must be a string."
@@ -728,265 +1000,13 @@ Security rules:
                 "Query cannot be empty."
             )
 
-        if len(query) > 10000:
+        if len(query) > 10_000:
 
             raise ValueError(
                 "Query is too long."
             )
 
         return query
-
-    # =============================================================================
-# Demo document ingestion
-# =============================================================================
-
-def ingest_demo_document(
-    app: SecureRAGApplication,
-) -> int:
-
-    """
-    Document ingestion pipeline:
-
-        TXT
-         |
-         v
-        ExtractedDocument
-         |
-         v
-        DocumentChunker
-         |
-         v
-        Embedder
-         |
-         v
-        EncryptedFAISS
-         |
-         v
-        PermissionManager ACL
-
-    Existing chunks are skipped to prevent duplicates.
-    """
-
-    if app.demo_document is None:
-
-        logger.warning(
-            "Demo document ingestion skipped: source document unavailable."
-        )
-
-        return 0
-
-    if app.embedder is None or app.vector_store is None:
-
-        raise ApplicationConfigurationError(
-            "Embedder and EncryptedFAISS must be configured."
-        )
-
-    content = str(
-        app.demo_document.get("content", "")
-    ).strip()
-
-    if not content:
-
-        logger.warning(
-            "Demo document ingestion skipped: empty content."
-        )
-
-        return 0
-
-    owner_username = str(
-        DEMO_DOCUMENT_METADATA["owner_username"]
-    )
-
-    owner = app.auth_manager.get_user(
-        owner_username
-    )
-
-    if owner is None:
-
-        raise ApplicationConfigurationError(
-            f"ACL owner account '{owner_username}' does not exist."
-        )
-
-    classification = str(
-        DEMO_DOCUMENT_METADATA["classification"]
-    ).casefold()
-
-    # ---------------------------------------------------------
-    # 1. ExtractedDocument
-    # ---------------------------------------------------------
-
-    extracted_document = ExtractedDocument(
-        text=content,
-        pages=1,
-        source=DEMO_DOCUMENT_PATH,
-        metadata={
-            "filename": DEMO_DOCUMENT_PATH.name,
-            "classification": classification,
-        },
-    )
-
-    # ---------------------------------------------------------
-    # 2. Chunker configuration
-    # ---------------------------------------------------------
-
-    chunk_size = int(
-        getattr(settings, "CHUNK_SIZE", 500)
-    )
-
-    chunk_overlap = int(
-        getattr(settings, "CHUNK_OVERLAP", 100)
-    )
-
-    if (
-        chunk_size <= 0
-        or chunk_overlap < 0
-        or chunk_overlap >= chunk_size
-    ):
-
-        raise ApplicationConfigurationError(
-            "Invalid chunking configuration. "
-            "Require CHUNK_SIZE > 0 and "
-            "0 <= CHUNK_OVERLAP < CHUNK_SIZE."
-        )
-
-    chunker = DocumentChunker(
-        chunk_size=chunk_size,
-        overlap=chunk_overlap,
-        min_chunk_size=min(100, chunk_size),
-    )
-
-    # ---------------------------------------------------------
-    # 3. Security metadata
-    # ---------------------------------------------------------
-
-    chunk_metadata = {
-        "owner_id": str(owner.user_id),
-        "classification": classification,
-        "source": DEMO_DOCUMENT_PATH.name,
-    }
-
-    # ---------------------------------------------------------
-    # 4. Generate chunks
-    # ---------------------------------------------------------
-
-    chunks = chunker.chunk(
-        extracted_document,
-        metadata=chunk_metadata,
-    )
-
-    if not chunks:
-
-        logger.warning(
-            "DocumentChunker returned no chunks: %s",
-            DEMO_DOCUMENT_PATH,
-        )
-
-        return 0
-
-    # Use the document ID generated by DocumentChunker.
-    document_id = chunks[0].document_id
-
-    # ---------------------------------------------------------
-    # 5. Register ACL policy
-    # ---------------------------------------------------------
-
-    app.add_document_policy(
-        DocumentACL(
-            document_id=document_id,
-            allowed_groups=set(
-                DEMO_DOCUMENT_METADATA["groups"]
-            ),
-            allowed_roles=set(
-                DEMO_DOCUMENT_METADATA["allowed_roles"]
-            ),
-            owner_id=str(owner.user_id),
-            classification=classification,
-        )
-    )
-
-    # ---------------------------------------------------------
-    # 6. Check existing chunks
-    # ---------------------------------------------------------
-
-    missing_chunks = [
-        chunk
-        for chunk in chunks
-        if app.vector_store.get_metadata(
-            chunk.chunk_id
-        ) is None
-    ]
-
-    if not missing_chunks:
-
-        logger.info(
-            "Demo document already indexed: "
-            "document_id=%s chunks=%d",
-            document_id,
-            len(chunks),
-        )
-
-        return 0
-
-    # ---------------------------------------------------------
-    # 7. Generate embeddings
-    # ---------------------------------------------------------
-
-    try:
-
-        embedding_result = app.embedder.embed_chunks(
-            missing_chunks
-        )
-
-        if len(embedding_result.vectors) != len(missing_chunks):
-
-            raise ApplicationConfigurationError(
-                "Embedding count does not match document chunk count."
-            )
-
-        if (
-            embedding_result.dimension
-            != app.vector_store.dimension
-        ):
-
-            raise ApplicationConfigurationError(
-                "Embedding dimension does not match EncryptedFAISS."
-            )
-
-        # -----------------------------------------------------
-        # 8. Add vectors to FAISS
-        # -----------------------------------------------------
-
-        app.vector_store.add_chunks(
-            missing_chunks,
-            embedding_result.vectors,
-        )
-
-        # -----------------------------------------------------
-        # 9. Save encrypted vector store
-        # -----------------------------------------------------
-
-        app.vector_store.save()
-
-    except Exception as error:
-
-        logger.exception(
-            "Demo document ingestion failed: document_id=%s",
-            document_id,
-        )
-
-        raise ApplicationConfigurationError(
-            "Unable to chunk, embed, or persist the demo document."
-        ) from error
-
-    logger.info(
-        "Demo document indexed: "
-        "document_id=%s new_chunks=%d total_vectors=%d",
-        document_id,
-        len(missing_chunks),
-        app.vector_store.count,
-    )
-
-    return len(missing_chunks)
 
 
 # =============================================================================
@@ -996,6 +1016,15 @@ def ingest_demo_document(
 def configure_secure_retrieval(
     app: SecureRAGApplication,
 ) -> None:
+
+    """
+    Initialize and connect:
+
+        Embedder
+        Encrypted FAISS
+        PermissionManager
+        SecureRetriever
+    """
 
     logger.info(
         "Configuring Secure Retrieval..."
@@ -1101,9 +1130,13 @@ def configure_secure_retrieval(
     )
 
     vector_store = EncryptedFAISS(
+
         storage_path=storage_path,
+
         key=encryption_key,
+
         dimension=embedding_dimension,
+
     )
 
     # ---------------------------------------------------------
@@ -1140,37 +1173,49 @@ def configure_secure_retrieval(
     # ---------------------------------------------------------
 
     retriever = SecureRetriever(
+
         embedder=embedder_adapter,
+
         vector_store=vector_store,
+
         permission_manager=app.permission_manager,
+
         default_top_k=settings.TOP_K,
+
         authorization_multiplier=4,
+
     )
 
     # ---------------------------------------------------------
     # 6. Connect components
     # ---------------------------------------------------------
 
-    app.set_retriever(retriever)
+    app.set_retriever(
+        retriever
+    )
 
     app.embedder = embedder
+
     app.vector_store = vector_store
 
     # ---------------------------------------------------------
-    # 7. Load and ingest demo document
+    # 7. Load demo document and attach metadata
     # ---------------------------------------------------------
 
     app.demo_document = load_demo_document()
 
     if app.demo_document is not None:
-
-        indexed_count = ingest_demo_document(app)
-
         logger.info(
-            "Demo ingestion completed: "
-            "new_chunks=%d stored_vectors=%d",
-            indexed_count,
-            vector_store.count,
+            "Demo document metadata prepared: document_id=%s owner=%s "
+            "groups=%s allowed_roles=%s",
+            app.demo_document["metadata"]["document_id"],
+            app.demo_document["metadata"]["owner"],
+            app.demo_document["metadata"]["groups"],
+            app.demo_document["metadata"]["allowed_roles"],
+        )
+        logger.warning(
+            "Document is loaded with metadata but is not yet indexed. "
+            "Connect this payload to the project's ingestion/FAISS API."
         )
 
     logger.info(
@@ -1183,65 +1228,137 @@ def configure_secure_retrieval(
 
 
 # =============================================================================
+# Ollama LLM configuration
+# =============================================================================
+
+def configure_ollama_llm(
+    app: SecureRAGApplication,
+) -> None:
+    """Create and attach the local Ollama-backed LLM generator.
+
+    Environment variables take precedence over optional config settings.
+    Ollama is not required to be reachable during application startup; a
+    connection failure is reported safely when a generation request occurs.
+    """
+    if LLMGenerator is None or OllamaClient is None:
+        logger.error(
+            "Ollama integration is unavailable. Import error: %s",
+            logger_import_error,
+        )
+        return
+
+    def setting(name: str, default: Any) -> Any:
+        env_value = os.getenv(name)
+        if env_value is not None and env_value.strip():
+            return env_value.strip()
+        return getattr(settings, name, default) if settings is not None else default
+
+    base_url = str(
+        setting("OLLAMA_BASE_URL", "http://localhost:11434")
+    ).rstrip("/")
+    model = str(
+        setting("OLLAMA_MODEL", "phi3:latest")
+    ).strip()
+    try:
+        temperature = float(
+            setting("OLLAMA_TEMPERATURE", 0.2)
+        )
+        timeout = float(
+            setting("OLLAMA_TIMEOUT", 180)
+        )
+    except (TypeError, ValueError) as error:
+        raise ApplicationConfigurationError(
+            "Invalid Ollama temperature or timeout configuration."
+        ) from error
+
+    try:
+        client = OllamaClient(
+            base_url=base_url,
+            model=model,
+            temperature=temperature,
+            timeout=timeout,
+        )
+        generator = LLMGenerator(client=client)
+        app.set_llm(generator)
+        logger.info(
+            "Ollama LLM configured: model=%s endpoint=%s/api/generate",
+            model,
+            base_url,
+        )
+    except Exception as error:
+        # Do not log credentials, prompt contents or retrieved documents.
+        logger.exception("Unable to configure Ollama LLM: %s", type(error).__name__)
+        app.llm = None
+
+
+# =============================================================================
 # Development bootstrap
 # =============================================================================
 
 def create_development_application() -> SecureRAGApplication:
 
     """
-    Create local development application.
+    Create development application.
 
-    The demo account uses a stable ID so document ownership remains
-    consistent across application restarts.
-
-    Do not use demo credentials in production.
+    Demo credentials must not be used in production.
     """
 
     auth = AuthenticationManager()
+
     permissions = PermissionManager()
 
     app = SecureRAGApplication(
+
         auth_manager=auth,
+
         permission_manager=permissions,
+
     )
 
-    demo_username = os.getenv(
-        "SECURE_RAG_DEMO_USERNAME",
-        "piotr",
-    )
+    # ---------------------------------------------------------
+    # Development user
+    # ---------------------------------------------------------
 
-    demo_password = os.getenv(
-        "SECURE_RAG_DEMO_PASSWORD",
-        "SecurePassword123!",
-    )
+    try:
 
-    existing_user = auth.get_user(
-        demo_username
-    )
+        app.create_user(
 
-    if existing_user is None:
+            username="piotr",
 
-        created_user = app.create_user(
-            username=demo_username,
-            password=demo_password,
-            user_id="demo-piotr",
-            roles={Role.ANALYST},
-            groups={"security"},
+            password="SecurePassword123!",
+
+            roles={
+                Role.ANALYST,
+            },
+
+            groups={
+                "security",
+            },
+
         )
 
         logger.info(
-            "Development user created: user_id=%s",
-            created_user.user_id,
+            "Development user created."
         )
 
-    else:
+    except Exception:
 
-        logger.info(
-            "Development user already exists: user_id=%s",
-            existing_user.user_id,
+        logger.exception(
+            "Could not create development user."
         )
 
-    configure_secure_retrieval(app)
+    # ---------------------------------------------------------
+    # Configure Secure Retrieval
+    # ---------------------------------------------------------
+
+    configure_secure_retrieval(
+        app
+    )
+
+    # Configure local LLM after the retrieval layer.
+    configure_ollama_llm(
+        app
+    )
 
     return app
 
@@ -1253,8 +1370,13 @@ def create_development_application() -> SecureRAGApplication:
 def print_banner() -> None:
 
     print()
+
     print("=" * 64)
-    print(f"{APP_NAME} {APP_VERSION}")
+
+    print(
+        f"{APP_NAME} {APP_VERSION}"
+    )
+
     print("=" * 64)
 
     print(
@@ -1267,6 +1389,7 @@ def print_banner() -> None:
     )
 
     print("=" * 64)
+
     print()
 
 
@@ -1276,34 +1399,30 @@ def run_cli() -> int:
 
     app = create_development_application()
 
+    # ---------------------------------------------------------
+    # Login
+    # ---------------------------------------------------------
+
     print(
         "Tryb demonstracyjny."
     )
 
-    demo_username = os.getenv(
-        "SECURE_RAG_DEMO_USERNAME",
-        "piotr",
-    )
-
-    demo_password = os.getenv(
-        "SECURE_RAG_DEMO_PASSWORD",
-        "SecurePassword123!",
+    print(
+        "Użytkownik: piotr"
     )
 
     print(
-        f"Użytkownik: {demo_username}"
-    )
-
-    print(
-        "Hasło: wartość z SECURE_RAG_DEMO_PASSWORD "
-        "(domyślnie hasło demonstracyjne)"
+        "Hasło: SecurePassword123!"
     )
 
     try:
 
         user, session_token = app.login(
-            demo_username,
-            demo_password,
+
+            "piotr",
+
+            "SecurePassword123!",
+
         )
 
     except (
@@ -1333,8 +1452,12 @@ def run_cli() -> int:
 
     print()
 
+    # ---------------------------------------------------------
+    # Interactive query mode
+    # ---------------------------------------------------------
+
     print(
-        "Secure Retrieval i indeks dokumentów są skonfigurowane."
+        "Secure Retrieval jest skonfigurowany."
     )
 
     print(
@@ -1363,6 +1486,7 @@ def run_cli() -> int:
             ):
 
                 print()
+
                 break
 
             if query.casefold() in {
@@ -1374,13 +1498,17 @@ def run_cli() -> int:
                 break
 
             if not query:
+
                 continue
 
             try:
 
                 response = app.ask(
+
                     query,
+
                     user,
+
                 )
 
             except SecurityPipelineError as error:
@@ -1404,20 +1532,34 @@ def run_cli() -> int:
                 continue
 
             print()
-            print(response.answer)
+
+            print(
+                response.answer
+            )
+
             print()
 
             print(
+
                 "[retrieved=%d | denied=%d]"
+
                 % (
+
                     response.retrieved_chunks,
+
                     response.denied_chunks,
+
                 )
+
             )
 
             print()
 
     finally:
+
+        # -----------------------------------------------------
+        # Session revocation
+        # -----------------------------------------------------
 
         try:
 
@@ -1455,6 +1597,7 @@ def main() -> int:
     except KeyboardInterrupt:
 
         print()
+
         return 130
 
     except Exception:
@@ -1468,5 +1611,6 @@ def main() -> int:
 
 if __name__ == "__main__":
 
-    sys.exit(main())
-
+    sys.exit(
+        main()
+    )

@@ -75,7 +75,8 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
 
     JWT_SECRET_KEY: str = Field(
-        default="CHANGE_ME_TO_RANDOM_SECRET"
+    ...,
+    min_length=32
     )
 
     JWT_ALGORITHM: str = "HS256"
@@ -87,7 +88,10 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
 
     AES_KEY: str = Field(
-        default="CHANGE_THIS_TO_32_BYTE_RANDOM_KEY"
+    ...,
+    min_length=44,
+    max_length=44,
+    description="Base64 encoded AES-256 key"
     )
 
     # -------------------------------------------------------------------------
