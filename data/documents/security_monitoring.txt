@@ -1,0 +1,18 @@
+Security Monitoring System
+
+A security monitoring system continuously
+collects and analyzes security events.
+
+Its main components include:
+
+1. Endpoint monitoring.
+2. Network traffic monitoring.
+3. Log collection.
+4. Threat detection.
+5. Security incident analysis.
+
+The system can use Wazuh, Sysmon
+and SIEM technologies.
+
+Security analysts investigate alerts
+and respond to detected threats.

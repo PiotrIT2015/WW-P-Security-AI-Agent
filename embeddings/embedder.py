@@ -1,3 +1,4 @@
+
 """
 embeddings/embedder.py
 
@@ -122,10 +123,10 @@ class Embedder:
         Generate one embedding vector.
         """
 
-        if not text or not text.strip():
+        if not isinstance(text, str) or not text.strip():
 
             raise EmbedderError(
-                "Cannot embed empty text."
+                "Cannot embed empty or invalid text."
             )
 
         model = self._load_model()
@@ -133,7 +134,7 @@ class Embedder:
         try:
 
             vector = model.encode(
-                text,
+                text.strip(),
                 convert_to_numpy=True,
                 normalize_embeddings=self.normalize,
             )
@@ -155,7 +156,37 @@ class Embedder:
                 "Expected one-dimensional embedding."
             )
 
+        if not np.all(np.isfinite(vector)):
+
+            raise EmbedderError(
+                "Embedding contains invalid numerical values."
+            )
+
+        expected_dimension = self.dimension()
+
+        if vector.shape != (expected_dimension,):
+
+            raise EmbedderError(
+                "Embedding dimension mismatch."
+            )
+
         return vector
+
+    # =========================================================================
+    # Query embedding
+    # =========================================================================
+
+    def embed_query(
+        self,
+        text: str,
+    ) -> np.ndarray:
+        """
+        Generate embedding for a user query.
+
+        Compatible with SecureRetriever EmbedderProtocol.
+        """
+
+        return self.embed_text(text)
 
     # =========================================================================
     # Multiple texts
@@ -176,21 +207,18 @@ class Embedder:
                 dtype=np.float32,
             )
 
-        clean_texts = [
+        clean_texts = []
 
-            text.strip()
+        for text in texts:
 
-            for text in texts
+            if not isinstance(text, str) or not text.strip():
 
-        ]
+                raise EmbedderError(
+                    "Empty or invalid text found in batch."
+                )
 
-        if any(
-            not text
-            for text in clean_texts
-        ):
-
-            raise EmbedderError(
-                "Empty text found in batch."
+            clean_texts.append(
+                text.strip()
             )
 
         model = self._load_model()
@@ -198,17 +226,11 @@ class Embedder:
         try:
 
             vectors = model.encode(
-
                 clean_texts,
-
                 batch_size=self.batch_size,
-
                 convert_to_numpy=True,
-
                 normalize_embeddings=self.normalize,
-
                 show_progress_bar=False,
-
             )
 
         except Exception as error:
@@ -228,6 +250,26 @@ class Embedder:
                 "Expected two-dimensional embedding matrix."
             )
 
+        if vectors.shape[0] != len(clean_texts):
+
+            raise EmbedderError(
+                "Number of generated embeddings does not match input."
+            )
+
+        if not np.all(np.isfinite(vectors)):
+
+            raise EmbedderError(
+                "Batch embeddings contain invalid numerical values."
+            )
+
+        expected_dimension = self.dimension()
+
+        if vectors.shape[1] != expected_dimension:
+
+            raise EmbedderError(
+                "Batch embedding dimension mismatch."
+            )
+
         return vectors
 
     # =========================================================================
@@ -245,18 +287,13 @@ class Embedder:
         if not chunks:
 
             return EmbeddingResult(
-
                 vectors=np.empty(
                     (0, 0),
                     dtype=np.float32,
                 ),
-
                 chunk_ids=[],
-
                 dimension=0,
-
                 model_name=self.model_name,
-
             )
 
         texts = [
@@ -274,15 +311,10 @@ class Embedder:
         ]
 
         return EmbeddingResult(
-
             vectors=vectors,
-
             chunk_ids=chunk_ids,
-
             dimension=vectors.shape[1],
-
             model_name=self.model_name,
-
         )
 
     # =========================================================================

@@ -1,3 +1,4 @@
+
 """
 vectorstore/encrypted_faiss.py
 
@@ -7,26 +8,28 @@ Python 3.12+
 
 Security properties:
 
-- FAISS index is encrypted at rest.
-- AES-256-GCM provides confidentiality and integrity.
-- Chunk IDs are mapped to FAISS vector IDs.
-- Metadata is kept separately from the vector index.
-- Index writes are atomic.
-- Decryption does not use pickle.
-- Loading an index never executes arbitrary Python objects.
+- FAISS index encrypted at rest.
+- AES-256-GCM confidentiality and integrity.
+- Chunk IDs mapped to FAISS vector IDs.
+- Document text and metadata encrypted together.
+- Atomic index writes.
+- No pickle deserialization.
+- Input and payload validation.
+- Compatible with SecureRetriever.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import tempfile
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Sequence
 
 import faiss
 import numpy as np
@@ -63,13 +66,21 @@ class VectorStoreSecurityError(VectorStoreError):
 class VectorSearchResult:
     """
     Result returned from vector similarity search.
+
+    Compatible with SecureRetriever._from_object().
     """
 
     vector_id: int
 
     chunk_id: str
 
+    document_id: str
+
+    text: str
+
     score: float
+
+    metadata: dict[str, Any]
 
 
 # =============================================================================
@@ -81,18 +92,21 @@ class EncryptedFAISS:
     """
     Secure FAISS vector store.
 
-    FAISS stores vectors.
-
-    A separate mapping connects:
+    Architecture:
 
         FAISS vector ID
-                ↓
-            chunk_id
+                |
+                v
+             chunk_id
+                |
+                v
+           document_id
+                |
+                v
+          encrypted metadata
 
-    The chunk itself is not stored inside FAISS.
-
-    This separation is important because authorization should
-    happen outside the vector index.
+    The FAISS index and metadata are serialized together
+    and encrypted using AES-256-GCM.
     """
 
     VERSION = 1
@@ -110,13 +124,17 @@ class EncryptedFAISS:
         dimension: int | None = None,
     ) -> None:
 
-        self.storage_path = Path(
-            storage_path
-        )
+        self.storage_path = Path(storage_path)
 
-        self.key = self._validate_key(
-            key
-        )
+        self.key = self._validate_key(key)
+
+        if dimension is not None:
+
+            if not isinstance(dimension, int) or dimension <= 0:
+
+                raise VectorStoreError(
+                    "Dimension must be a positive integer."
+                )
 
         self.dimension = dimension
 
@@ -124,10 +142,10 @@ class EncryptedFAISS:
 
         self._chunk_ids: list[str] = []
 
-        self._metadata: dict[str, dict] = {}
+        self._metadata: dict[str, dict[str, Any]] = {}
 
     # =========================================================================
-    # Key
+    # Key management
     # =========================================================================
 
     @classmethod
@@ -145,8 +163,14 @@ class EncryptedFAISS:
         key: bytes,
     ) -> str:
         """
-        Convert binary key to Base64 representation.
+        Convert binary encryption key to Base64.
         """
+
+        if not isinstance(key, bytes):
+
+            raise TypeError(
+                "Encryption key must be bytes."
+            )
 
         return base64.b64encode(
             key
@@ -158,8 +182,14 @@ class EncryptedFAISS:
         value: str,
     ) -> bytes:
         """
-        Decode a Base64 AES-256 key.
+        Decode Base64 AES-256 key.
         """
+
+        if not isinstance(value, str):
+
+            raise VectorStoreSecurityError(
+                "Encryption key must be a string."
+            )
 
         try:
 
@@ -174,20 +204,18 @@ class EncryptedFAISS:
                 "Invalid Base64 encryption key."
             ) from error
 
-        return cls._validate_key(
-            key
-        )
+        return cls._validate_key(key)
 
     @classmethod
     def _validate_key(
         cls,
         key: bytes,
     ) -> bytes:
+        """
+        Validate AES-256 key.
+        """
 
-        if not isinstance(
-            key,
-            bytes,
-        ):
+        if not isinstance(key, bytes):
 
             raise TypeError(
                 "Encryption key must be bytes."
@@ -202,13 +230,19 @@ class EncryptedFAISS:
         return key
 
     # =========================================================================
-    # Index
+    # Index management
     # =========================================================================
 
     def _create_index(
         self,
         dimension: int,
     ) -> faiss.Index:
+        """
+        Create FAISS inner-product index.
+
+        For normalized vectors, inner product corresponds
+        to cosine similarity.
+        """
 
         if dimension <= 0:
 
@@ -216,18 +250,12 @@ class EncryptedFAISS:
                 "FAISS dimension must be positive."
             )
 
-        # Inner product is appropriate for normalized
-        # embeddings and therefore corresponds to cosine
-        # similarity.
-
-        index = faiss.IndexFlatIP(
+        return faiss.IndexFlatIP(
             dimension
         )
 
-        return index
-
     # =========================================================================
-    # Add
+    # Add chunks
     # =========================================================================
 
     def add_chunks(
@@ -238,7 +266,7 @@ class EncryptedFAISS:
         """
         Add document chunks and their embeddings.
 
-        Vectors must correspond positionally to chunks.
+        Each vector must correspond positionally to its chunk.
         """
 
         if len(chunks) != len(vectors):
@@ -263,7 +291,137 @@ class EncryptedFAISS:
                 "Vectors must be a two-dimensional matrix."
             )
 
+        if vectors.shape[0] != len(chunks):
+
+            raise VectorStoreError(
+                "Vector count mismatch."
+            )
+
         dimension = vectors.shape[1]
+
+        if dimension <= 0:
+
+            raise VectorStoreError(
+                "Invalid embedding dimension."
+            )
+
+        if not np.all(np.isfinite(vectors)):
+
+            raise VectorStoreError(
+                "Embeddings contain invalid numerical values."
+            )
+
+        if self.dimension is not None:
+
+            if dimension != self.dimension:
+
+                raise VectorStoreError(
+                    "Embedding dimension does not match "
+                    "configured dimension."
+                )
+
+        if self._index is not None:
+
+            if dimension != self.dimension:
+
+                raise VectorStoreError(
+                    "Embedding dimension does not match "
+                    "existing FAISS index."
+                )
+
+        # ---------------------------------------------------------
+        # Validate chunks before modifying the index.
+        # ---------------------------------------------------------
+
+        new_chunk_ids = []
+
+        new_metadata = {}
+
+        for chunk in chunks:
+
+            if not isinstance(chunk, DocumentChunk):
+
+                raise VectorStoreError(
+                    "Invalid document chunk."
+                )
+
+            if not chunk.chunk_id or not chunk.document_id:
+
+                raise VectorStoreError(
+                    "Chunk ID and document ID are required."
+                )
+
+            if not isinstance(chunk.text, str) or not chunk.text.strip():
+
+                raise VectorStoreError(
+                    "Document chunk text cannot be empty."
+                )
+
+            if chunk.chunk_id in self._metadata:
+
+                raise VectorStoreError(
+                    f"Duplicate chunk ID: {chunk.chunk_id}"
+                )
+
+            if chunk.chunk_id in new_chunk_ids:
+
+                raise VectorStoreError(
+                    f"Duplicate chunk ID in batch: {chunk.chunk_id}"
+                )
+
+            metadata = dict(
+                chunk.metadata
+            )
+
+            # Security-critical fields override user metadata.
+
+            metadata.update({
+
+                "chunk_id": chunk.chunk_id,
+
+                "document_id": chunk.document_id,
+
+                "text": chunk.text,
+
+                "source": chunk.source,
+
+                "position": chunk.position,
+
+                "page": chunk.page,
+
+            })
+
+            new_chunk_ids.append(
+                chunk.chunk_id
+            )
+
+            new_metadata[chunk.chunk_id] = metadata
+
+        # ---------------------------------------------------------
+        # Validate JSON serializability.
+        # ---------------------------------------------------------
+
+        try:
+
+            json.dumps(
+                new_metadata,
+                ensure_ascii=False,
+            )
+
+        except (TypeError, ValueError) as error:
+
+            raise VectorStoreError(
+                "Chunk metadata is not JSON serializable."
+            ) from error
+
+        # ---------------------------------------------------------
+        # Prepare FAISS index.
+        # ---------------------------------------------------------
+
+        vectors = np.ascontiguousarray(
+            vectors,
+            dtype=np.float32,
+        )
 
         if self._index is None:
 
@@ -273,55 +431,33 @@ class EncryptedFAISS:
 
             self.dimension = dimension
 
-        if self.dimension != dimension:
+        # ---------------------------------------------------------
+        # Add vectors.
+        # ---------------------------------------------------------
+
+        try:
+
+            self._index.add(
+                vectors
+            )
+
+        except Exception as error:
 
             raise VectorStoreError(
-                "Embedding dimension does not match "
-                "existing FAISS index."
-            )
+                "Unable to add vectors to FAISS index."
+            ) from error
 
-        # Defensive copy.
+        # ---------------------------------------------------------
+        # Update mappings.
+        # ---------------------------------------------------------
 
-        vectors = np.ascontiguousarray(
-            vectors,
-            dtype=np.float32,
+        self._chunk_ids.extend(
+            new_chunk_ids
         )
 
-        start_id = len(
-            self._chunk_ids
+        self._metadata.update(
+            new_metadata
         )
-
-        self._index.add(
-            vectors
-        )
-
-        for offset, chunk in enumerate(chunks):
-
-            vector_id = start_id + offset
-
-            self._chunk_ids.append(
-                chunk.chunk_id
-            )
-
-            self._metadata[
-                chunk.chunk_id
-            ] = {
-
-                "chunk_id":
-                    chunk.chunk_id,
-
-                "document_id":
-                    chunk.document_id,
-
-                "source":
-                    chunk.source,
-
-                "position":
-                    chunk.position,
-
-                **chunk.metadata,
-
-            }
 
     # =========================================================================
     # Search
@@ -335,18 +471,22 @@ class EncryptedFAISS:
         """
         Search nearest vectors.
 
-        Returns only valid mapped vector IDs.
+        Returns document text and metadata required by
+        SecureRetriever.
+
+        FAISS search does NOT authorize document access.
+        Authorization must be performed by PermissionManager.
         """
-
-        if self._index is None:
-
-            return []
 
         if top_k <= 0:
 
             raise ValueError(
                 "top_k must be greater than zero."
             )
+
+        if self._index is None:
+
+            return []
 
         vector = np.asarray(
             query_vector,
@@ -360,7 +500,7 @@ class EncryptedFAISS:
                 -1,
             )
 
-        if vector.ndim != 2:
+        if vector.ndim != 2 or vector.shape[0] != 1:
 
             raise VectorStoreError(
                 "Query vector must have shape "
@@ -374,18 +514,34 @@ class EncryptedFAISS:
                 "match FAISS index."
             )
 
+        if not np.all(np.isfinite(vector)):
+
+            raise VectorStoreError(
+                "Query vector contains invalid numerical values."
+            )
+
         vector = np.ascontiguousarray(
             vector,
             dtype=np.float32,
         )
 
-        scores, ids = self._index.search(
-            vector,
-            min(
-                top_k,
-                self._index.ntotal,
-            ),
+        search_count = min(
+            top_k,
+            self._index.ntotal,
         )
+
+        try:
+
+            scores, ids = self._index.search(
+                vector,
+                search_count,
+            )
+
+        except Exception as error:
+
+            raise VectorStoreError(
+                "FAISS similarity search failed."
+            ) from error
 
         results: list[VectorSearchResult] = []
 
@@ -398,27 +554,72 @@ class EncryptedFAISS:
 
                 continue
 
-            if vector_id >= len(
-                self._chunk_ids
-            ):
+            vector_id = int(
+                vector_id
+            )
 
-                continue
+            if vector_id >= len(self._chunk_ids):
+
+                raise VectorStoreSecurityError(
+                    "Invalid FAISS vector mapping."
+                )
+
+            chunk_id = self._chunk_ids[
+                vector_id
+            ]
+
+            metadata = self._metadata.get(
+                chunk_id
+            )
+
+            if metadata is None:
+
+                raise VectorStoreSecurityError(
+                    "Missing chunk metadata."
+                )
+
+            document_id = metadata.get(
+                "document_id"
+            )
+
+            text = metadata.get(
+                "text"
+            )
+
+            if not document_id or not text:
+
+                raise VectorStoreSecurityError(
+                    "Incomplete document metadata."
+                )
+
+            # Text is returned separately.
+            # Remaining metadata is passed to RBAC/ACL.
+
+            result_metadata = {
+
+                key: value
+
+                for key, value in metadata.items()
+
+                if key != "text"
+
+            }
 
             results.append(
-
                 VectorSearchResult(
 
-                    vector_id=int(
-                        vector_id
-                    ),
+                    vector_id=vector_id,
 
-                    chunk_id=self._chunk_ids[
-                        vector_id
-                    ],
+                    chunk_id=chunk_id,
 
-                    score=float(
-                        score
-                    ),
+                    document_id=document_id,
+
+                    text=text,
+
+                    score=float(score),
+
+                    metadata=result_metadata,
+
                 )
             )
 
@@ -431,7 +632,7 @@ class EncryptedFAISS:
     def get_metadata(
         self,
         chunk_id: str,
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """
         Return metadata associated with a chunk.
         """
@@ -454,15 +655,21 @@ class EncryptedFAISS:
 
     def save(self) -> None:
         """
-        Serialize FAISS index and metadata and encrypt them.
+        Serialize FAISS index and metadata.
 
-        The entire payload is authenticated using AES-GCM.
+        Encrypt the complete payload using AES-256-GCM.
         """
 
         if self._index is None:
 
             raise VectorStoreError(
                 "Cannot save an empty vector store."
+            )
+
+        if self._index.ntotal != len(self._chunk_ids):
+
+            raise VectorStoreSecurityError(
+                "FAISS vector mapping is inconsistent."
             )
 
         self.storage_path.parent.mkdir(
@@ -484,49 +691,43 @@ class EncryptedFAISS:
 
         payload = {
 
-            "version":
-                self.VERSION,
+            "version": self.VERSION,
 
-            "dimension":
-                self.dimension,
+            "dimension": self.dimension,
 
-            "count":
-                len(self._chunk_ids),
+            "count": len(self._chunk_ids),
 
-            "chunk_ids":
-                self._chunk_ids,
+            "chunk_ids": self._chunk_ids,
 
-            "metadata":
-                self._metadata,
+            "metadata": self._metadata,
 
-            "index_sha256":
-                hashlib.sha256(
-                    index_bytes
-                ).hexdigest(),
+            "index_sha256": hashlib.sha256(
+                index_bytes
+            ).hexdigest(),
 
-            "index":
-                base64.b64encode(
-                    index_bytes
-                ).decode("ascii"),
+            "index": base64.b64encode(
+                index_bytes
+            ).decode("ascii"),
 
         }
 
-        plaintext = json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(
-                ",",
-                ":",
-            ),
-        ).encode(
-            "utf-8"
-        )
+        try:
+
+            plaintext = json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+
+        except (TypeError, ValueError) as error:
+
+            raise VectorStoreError(
+                "Unable to serialize vector store metadata."
+            ) from error
 
         nonce = os.urandom(
             self.NONCE_SIZE
         )
-
-        aad = self._aad()
 
         try:
 
@@ -535,7 +736,7 @@ class EncryptedFAISS:
             ).encrypt(
                 nonce,
                 plaintext,
-                aad,
+                self._aad(),
             )
 
         except Exception as error:
@@ -545,13 +746,9 @@ class EncryptedFAISS:
             ) from error
 
         container = (
-
             self.MAGIC
-
             + nonce
-
             + ciphertext
-
         )
 
         self._atomic_write(
@@ -565,13 +762,14 @@ class EncryptedFAISS:
     def load(self) -> None:
         """
         Load and decrypt an encrypted FAISS store.
+
+        The index is not modified until validation succeeds.
         """
 
         if not self.storage_path.exists():
 
             raise VectorStoreError(
-                f"Vector store not found: "
-                f"{self.storage_path}"
+                f"Vector store not found: {self.storage_path}"
             )
 
         try:
@@ -596,21 +794,16 @@ class EncryptedFAISS:
                 "Encrypted vector store is truncated."
             )
 
-        if not container.startswith(
-            self.MAGIC
-        ):
+        if not container.startswith(self.MAGIC):
 
             raise VectorStoreSecurityError(
                 "Invalid vector store format."
             )
 
-        offset = len(
-            self.MAGIC
-        )
+        offset = len(self.MAGIC)
 
         nonce = container[
-            offset:
-            offset + self.NONCE_SIZE
+            offset:offset + self.NONCE_SIZE
         ]
 
         ciphertext = container[
@@ -644,9 +837,7 @@ class EncryptedFAISS:
         try:
 
             payload = json.loads(
-                plaintext.decode(
-                    "utf-8"
-                )
+                plaintext.decode("utf-8")
             )
 
         except (
@@ -655,8 +846,7 @@ class EncryptedFAISS:
         ) as error:
 
             raise VectorStoreSecurityError(
-                "Decrypted vector store contains "
-                "invalid data."
+                "Decrypted vector store contains invalid data."
             ) from error
 
         self._validate_payload(
@@ -710,9 +900,7 @@ class EncryptedFAISS:
                 "Unable to deserialize FAISS index."
             ) from error
 
-        dimension = payload[
-            "dimension"
-        ]
+        dimension = payload["dimension"]
 
         if index.d != dimension:
 
@@ -720,50 +908,56 @@ class EncryptedFAISS:
                 "FAISS dimension mismatch."
             )
 
-        if index.ntotal != payload[
-            "count"
-        ]:
+        if index.ntotal != payload["count"]:
 
             raise VectorStoreSecurityError(
-                "FAISS vector count does not "
-                "match metadata."
+                "FAISS vector count does not match metadata."
             )
+
+        if (
+            self.dimension is not None
+            and self.dimension != dimension
+        ):
+
+            raise VectorStoreSecurityError(
+                "Loaded index dimension does not match "
+                "configured dimension."
+            )
+
+        # Commit validated state.
 
         self._index = index
 
-        self.dimension = int(
-            dimension
-        )
+        self.dimension = dimension
 
         self._chunk_ids = list(
             payload["chunk_ids"]
         )
 
-        self._metadata = dict(
-            payload["metadata"]
-        )
+        self._metadata = {
+            key: dict(value)
+            for key, value in payload["metadata"].items()
+        }
 
     # =========================================================================
-    # Validation
+    # Payload validation
     # =========================================================================
 
     def _validate_payload(
         self,
         payload: dict,
     ) -> None:
+        """
+        Validate decrypted payload before FAISS deserialization.
+        """
 
-        if not isinstance(
-            payload,
-            dict,
-        ):
+        if not isinstance(payload, dict):
 
             raise VectorStoreSecurityError(
                 "Invalid vector store payload."
             )
 
-        if payload.get(
-            "version"
-        ) != self.VERSION:
+        if payload.get("version") != self.VERSION:
 
             raise VectorStoreSecurityError(
                 "Unsupported vector store version."
@@ -778,77 +972,150 @@ class EncryptedFAISS:
             "index",
         }
 
-        if not required.issubset(
-            payload
-        ):
+        if not required.issubset(payload):
 
             raise VectorStoreSecurityError(
                 "Vector store payload is incomplete."
             )
 
-        if not isinstance(
-            payload["dimension"],
-            int,
+        dimension = payload["dimension"]
+
+        count = payload["count"]
+
+        if (
+            not isinstance(dimension, int)
+            or isinstance(dimension, bool)
+            or dimension <= 0
         ):
 
             raise VectorStoreSecurityError(
                 "Invalid vector dimension."
             )
 
-        if not isinstance(
-            payload["count"],
-            int,
+        if (
+            not isinstance(count, int)
+            or isinstance(count, bool)
+            or count <= 0
         ):
 
             raise VectorStoreSecurityError(
                 "Invalid vector count."
             )
 
-        if not isinstance(
-            payload["chunk_ids"],
-            list,
-        ):
+        chunk_ids = payload["chunk_ids"]
+
+        if not isinstance(chunk_ids, list):
 
             raise VectorStoreSecurityError(
                 "Invalid chunk ID mapping."
             )
 
-        if len(
-            payload["chunk_ids"]
-        ) != payload["count"]:
+        if len(chunk_ids) != count:
 
             raise VectorStoreSecurityError(
                 "Chunk ID count mismatch."
             )
 
-        if not isinstance(
-            payload["metadata"],
-            dict,
+        if any(
+            not isinstance(item, str) or not item
+            for item in chunk_ids
         ):
+
+            raise VectorStoreSecurityError(
+                "Invalid chunk ID."
+            )
+
+        if len(set(chunk_ids)) != len(chunk_ids):
+
+            raise VectorStoreSecurityError(
+                "Duplicate chunk IDs in vector store."
+            )
+
+        metadata = payload["metadata"]
+
+        if not isinstance(metadata, dict):
 
             raise VectorStoreSecurityError(
                 "Invalid metadata mapping."
             )
 
+        if set(metadata.keys()) != set(chunk_ids):
+
+            raise VectorStoreSecurityError(
+                "Metadata and chunk ID mappings do not match."
+            )
+
+        for chunk_id, item in metadata.items():
+
+            if not isinstance(item, dict):
+
+                raise VectorStoreSecurityError(
+                    "Invalid chunk metadata."
+                )
+
+            if item.get("chunk_id") != chunk_id:
+
+                raise VectorStoreSecurityError(
+                    "Chunk metadata ID mismatch."
+                )
+
+            if not isinstance(
+                item.get("document_id"),
+                str,
+            ) or not item["document_id"]:
+
+                raise VectorStoreSecurityError(
+                    "Invalid document ID."
+                )
+
+            if not isinstance(
+                item.get("text"),
+                str,
+            ) or not item["text"]:
+
+                raise VectorStoreSecurityError(
+                    "Invalid document text."
+                )
+
+        if not isinstance(
+            payload["index_sha256"],
+            str,
+        ):
+
+            raise VectorStoreSecurityError(
+                "Invalid index hash."
+            )
+
+        if len(payload["index_sha256"]) != 64:
+
+            raise VectorStoreSecurityError(
+                "Invalid index hash length."
+            )
+
+        if not isinstance(
+            payload["index"],
+            str,
+        ):
+
+            raise VectorStoreSecurityError(
+                "Invalid encoded index."
+            )
+
     # =========================================================================
-    # AAD
+    # Additional authenticated data
     # =========================================================================
 
     def _aad(self) -> bytes:
         """
         Additional authenticated data.
 
-        It is authenticated but not encrypted.
+        AAD is authenticated but not encrypted.
         """
 
         return (
             self.MAGIC
             + b":v"
-            + str(
-                self.VERSION
-            ).encode(
-                "ascii"
-            )
+            + str(self.VERSION).encode("ascii")
         )
 
     # =========================================================================
@@ -862,8 +1129,8 @@ class EncryptedFAISS:
         """
         Write encrypted data atomically.
 
-        Prevents partially written index files from replacing
-        a valid store.
+        Prevents partially written files from replacing
+        a valid encrypted store.
         """
 
         self.storage_path.parent.mkdir(
@@ -884,9 +1151,7 @@ class EncryptedFAISS:
                 "wb",
             ) as file:
 
-                file.write(
-                    data
-                )
+                file.write(data)
 
                 file.flush()
 
@@ -941,9 +1206,11 @@ def _constant_time_equal(
     first: str,
     second: str,
 ) -> bool:
+    """
+    Compare strings using constant-time comparison.
+    """
 
-    return hashlib.sha256(
-        first.encode()
-    ).digest() == hashlib.sha256(
-        second.encode()
-    ).digest()
+    return hmac.compare_digest(
+        first,
+        second,
+    )
