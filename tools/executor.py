@@ -17,13 +17,24 @@ import time
 from authentication.auth import UserContext
 
 from tools.base import ToolResult
+
 from tools.registry import (
     ToolRegistry,
     ToolNotFoundError,
 )
+
+from tools.security import (
+    ToolSecurityManager,
+)
+
 from tools.schemas import (
     validate_arguments,
     ToolValidationError,
+)
+
+from tools.permissions import (
+    ToolPermissionManager,
+    ToolPermissionPolicy,
 )
 
 
@@ -32,13 +43,17 @@ logger = logging.getLogger("secure_rag.tools.executor")
 
 class ToolExecutor:
     """
-    Executes registered tools under authenticated user context.
+    Secure execution engine for registered agent tools.
 
     Security controls:
 
     - authenticated user required
-    - user context validation
-    - role-based access control
+    - centralized permission management
+    - RBAC
+    - user-based access
+    - group-based access
+    - explicit deny rules
+    - default deny
     - argument validation
     - registered tools only
     - JSON-compatible output validation
@@ -49,6 +64,8 @@ class ToolExecutor:
     def __init__(
         self,
         registry: ToolRegistry,
+        permission_manager: ToolPermissionManager | None = None,
+        security_manager: ToolSecurityManager | None = None,
     ) -> None:
 
         if not isinstance(registry, ToolRegistry):
@@ -58,6 +75,83 @@ class ToolExecutor:
 
         self.registry = registry
 
+        self.permission_manager = (
+            permission_manager
+            if permission_manager is not None
+            else ToolPermissionManager()
+        )
+
+        self.security_manager = (
+            security_manager
+            if security_manager is not None
+            else ToolSecurityManager()
+        )
+
+        if not isinstance(
+            self.permission_manager,
+            ToolPermissionManager,
+        ):
+            raise TypeError(
+                "permission_manager must be ToolPermissionManager."
+            )
+
+        if not isinstance(
+            self.security_manager,
+            ToolSecurityManager,
+        ):
+            raise TypeError(
+                "security_manager must be ToolSecurityManager."
+            )
+
+        self._initialize_default_policies()
+
+    # =========================================================================
+    # Default policies
+    # =========================================================================
+
+    def _initialize_default_policies(self) -> None:
+        """
+        Create initial policies from registered tool definitions.
+
+        Tools with required_roles:
+            Access requires a matching role.
+
+        Tools without required_roles:
+            Any authenticated user can access.
+
+        Explicit policies can later replace these defaults.
+        """
+
+        for tool_name in self.registry.list_names():
+
+            tool = self.registry.get(tool_name)
+
+            try:
+
+                self.permission_manager.get_policy(
+                    tool_name
+                )
+
+                continue
+
+            except Exception:
+                pass
+
+            required_roles = frozenset(
+                role.casefold()
+                for role in tool.required_roles
+            )
+
+            policy = ToolPermissionPolicy(
+                allowed_roles=required_roles,
+                allow_authenticated=not bool(required_roles),
+            )
+
+            self.permission_manager.add_policy(
+                tool_name,
+                policy,
+            )
+
     # =========================================================================
     # Authentication
     # =========================================================================
@@ -66,9 +160,6 @@ class ToolExecutor:
     def _validate_user(
         user: UserContext,
     ) -> bool:
-        """
-        Validate authenticated user context.
-        """
 
         if not isinstance(user, UserContext):
             return False
@@ -97,51 +188,18 @@ class ToolExecutor:
     # Authorization
     # =========================================================================
 
-    @staticmethod
     def _authorize(
+        self,
         user: UserContext,
-        required_roles: set[str],
+        tool_name: str,
     ) -> bool:
-        """
-        Check whether user can execute a tool.
 
-        Security policy:
-
-        - Invalid users are denied.
-        - Admin has access to all registered tools.
-        - Empty required_roles means any authenticated user.
-        - Otherwise, at least one required role must match.
-        """
-
-        if not ToolExecutor._validate_user(user):
-            return False
-
-        if not isinstance(required_roles, set):
-            return False
-
-        user_roles = {
-            role.casefold()
-            for role in user.roles
-            if isinstance(role, str)
-        }
-
-        required = {
-            role.casefold()
-            for role in required_roles
-            if isinstance(role, str)
-        }
-
-        # Explicit admin override.
-        if "admin" in user_roles:
-            return True
-
-        # Empty role requirements mean authenticated access.
-        if not required:
-            return True
-
-        return bool(
-            user_roles.intersection(required)
+        result = self.permission_manager.authorize(
+            tool_name,
+            user,
         )
+
+        return result.allowed
 
     # =========================================================================
     # Output validation
@@ -149,28 +207,24 @@ class ToolExecutor:
 
     @staticmethod
     def _validate_output(output) -> bool:
-        """
-        Check whether tool output can safely be serialized to JSON.
-
-        Supported top-level types:
-        - dict
-        - list
-        - str
-
-        NaN and Infinity are rejected.
-        """
 
         if not isinstance(output, (dict, list, str)):
             return False
 
         try:
+
             json.dumps(
                 output,
                 ensure_ascii=False,
                 allow_nan=False,
             )
 
-        except (TypeError, ValueError, OverflowError):
+        except (
+            TypeError,
+            ValueError,
+            OverflowError,
+        ):
+
             return False
 
         return True
@@ -190,10 +244,10 @@ class ToolExecutor:
 
         Execution sequence:
 
-        1. Validate user.
+        1. Validate authentication.
         2. Validate tool name.
         3. Retrieve tool.
-        4. Check permissions.
+        4. Evaluate permission policy.
         5. Validate arguments.
         6. Execute tool.
         7. Validate output.
@@ -251,26 +305,33 @@ class ToolExecutor:
                 error="Tool not found.",
             )
 
-        # 4. Authorization.
+        # 4. Permission evaluation.
 
-        if not self._authorize(
+        permission = self.permission_manager.authorize(
+            tool_name,
             user,
-            tool.required_roles,
-        ):
+        )
+
+        if not permission.allowed:
 
             logger.warning(
-                "Tool access denied: user=%s tool=%s",
+                "Tool access denied: "
+                "user=%s tool=%s reason=%s",
                 user.user_id,
                 tool_name,
+                permission.reason,
             )
 
             return ToolResult(
                 tool_name=tool_name,
                 success=False,
                 error="Permission denied.",
+                metadata={
+                    "permission_reason": permission.reason,
+                },
             )
-
-        # 5. Argument validation.
+        
+        # 5. Basic argument type validation.
 
         if not isinstance(arguments, dict):
 
@@ -279,6 +340,35 @@ class ToolExecutor:
                 success=False,
                 error="Tool arguments must be an object.",
             )
+        
+        # 5. Tool security checks.
+
+        security = self.security_manager.evaluate(
+            tool_name=tool_name,
+            user_id=user.user_id,
+            arguments=arguments,
+        )
+
+        if not security.allowed:
+
+            logger.warning(
+                "Tool security check denied: "
+                "user=%s tool=%s reason=%s",
+                user.user_id,
+                tool_name,
+                security.reason,
+            )
+
+            return ToolResult(
+                tool_name=tool_name,
+                success=False,
+                error="Tool security validation failed.",
+                metadata={
+                    "security_reason": security.reason,
+                },
+            )
+
+        # 5. Argument validation.
 
         try:
 
@@ -322,8 +412,7 @@ class ToolExecutor:
             if not self._validate_output(output):
 
                 logger.error(
-                    "Tool returned invalid output: "
-                    "tool=%s",
+                    "Tool returned invalid output: tool=%s",
                     tool_name,
                 )
 
@@ -355,7 +444,8 @@ class ToolExecutor:
                     "execution_time_ms": round(
                         execution_time * 1000,
                         2,
-                    )
+                    ),
+                    "permission_reason": permission.reason,
                 },
             )
 
