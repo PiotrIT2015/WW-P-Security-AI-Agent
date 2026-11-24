@@ -1,898 +1,643 @@
 # WW-P Security AI Agent
 
-### Security-focused AI Agent powered by Secure RAG, Local LLMs and Agentic Architecture
+### Local AI-Powered Cybersecurity & System Administration Assistant
 
-![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
-![AI](https://img.shields.io/badge/AI-Agentic%20Systems-purple.svg)
-![Security](https://img.shields.io/badge/Security-AI%20Security-red.svg)
-![RAG](https://img.shields.io/badge/Architecture-Secure%20RAG-green.svg)
-![Status](https://img.shields.io/badge/Status-Active%20Development-orange.svg)
+**WW-P Security AI Agent** is an evolving, security-oriented AI agent designed to support cybersecurity analysis, system administration, and intelligent IT operations.
 
-**WW-P Security AI Agent** is a Python-based AI security project designed to evolve from a secure Retrieval-Augmented Generation (RAG) platform into an autonomous, tool-using AI agent.
+The project is being developed by extending a secure Retrieval-Augmented Generation (RAG) architecture with local Large Language Models (LLMs), controlled tool execution, and an agent-based reasoning architecture.
 
-The system combines document retrieval, access control, encrypted vector storage, input security mechanisms and local Large Language Models.
+Its primary objective is to combine local AI inference, secure knowledge retrieval, role-based access control, and controlled automation into a modular AI operations platform.
 
-Its long-term objective is to create a modular AI agent capable of analyzing security-related information, interacting with external tools and supporting technical decision-making while maintaining strict security boundaries.
+> **Project status:** Active Development  
+> **Development date:** November 24, 2026  
+> **Current focus:** Secure RAG, Ollama integration, Tool Registry, and Agent Tool Bridge.
 
 ---
 
-# 1. Project Vision
+## Table of Contents
 
-Traditional AI assistants primarily focus on generating responses.
-
-WW-P Security AI Agent aims to go further.
-
-The project explores how to build an AI system that can:
-
-- Retrieve information from authorized documents.
-- Analyze security-related information.
-- Detect potentially malicious prompts.
-- Identify jailbreak attempts.
-- Respect user permissions and access policies.
-- Use local language models.
-- Interact with registered tools.
-- Execute controlled operations.
-- Maintain monitoring and security logs.
-
-The central design principle is:
-
-> An AI agent should not only be capable of performing tasks. It should also understand the boundaries within which it is allowed to operate.
+- [Project Overview](#project-overview)
+- [Vision and Objectives](#vision-and-objectives)
+- [Architecture](#architecture)
+- [Implemented Components](#implemented-components)
+- [Current Development Progress](#current-development-progress)
+- [Technology Stack](#technology-stack)
+- [Security Architecture](#security-architecture)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Running the Project](#running-the-project)
+- [Testing](#testing)
+- [Development Roadmap](#development-roadmap)
+- [Planned Agent Capabilities](#planned-agent-capabilities)
+- [Project Limitations](#project-limitations)
+- [Author](#author)
 
 ---
 
-# 2. Architecture Overview
+## Project Overview
 
-The architecture is divided into several independent layers.
+WW-P Security AI Agent aims to provide an intelligent assistant capable of:
+
+- Analyzing cybersecurity-related information.
+- Interpreting technical documentation.
+- Retrieving authorized information from private knowledge bases.
+- Communicating with locally hosted LLMs.
+- Selecting and executing authorized tools.
+- Supporting IT troubleshooting and system diagnostics.
+- Assisting with network and security monitoring.
+
+Unlike a conventional chatbot, the planned system is designed around controlled tool execution and a modular agent architecture.
+
+Security is a fundamental design requirement rather than an additional feature.
+
+The project follows a local-first approach, using Ollama to run language models locally.
+
+---
+
+## Vision and Objectives
+
+The long-term objective is to build a modular AI agent combining five major capabilities:
+
+1. **Secure Knowledge Retrieval** – retrieving information from authorized documents.
+2. **Local AI Intelligence** – using locally hosted language models.
+3. **Controlled Tool Execution** – interacting with system and security tools through permission-controlled interfaces.
+4. **Agent Reasoning** – planning and executing multi-step tasks.
+5. **Security and Accountability** – enforcing permissions, validating operations, and maintaining audit records.
+
+The architecture is intended to support both cybersecurity and general IT operations.
+
+---
+
+## Architecture
+
+The system is being developed as a collection of independent modules.
+
+### Target Architecture
 
 ```text
-                USER INTERFACE
-                       |
-                       v
-                AUTHENTICATION
-                       |
-                       v
-                 USER CONTEXT
-                       |
-                       v
-                SECURITY LAYER
-                       |
-             +---------+---------+
-             |                   |
-             v                   v
-        PROMPT GUARD       JAILBREAK DETECTOR
-             |                   |
-             +---------+---------+
-                       |
-                       v
-                  AGENT CORE
-                       |
-             +---------+---------+
-             |         |         |
-             v         v         v
-           SECURE     TOOL      MEMORY
-            RAG     REGISTRY    LAYER
-             |         |
-             v         v
-         ENCRYPTED   REGISTERED
-           FAISS      TOOLS
-             |         |
-             +----+----+
-                  |
-                  v
-              LOCAL LLM
-                OLLAMA
-                  |
-                  v
-             OUTPUT SECURITY
-                  |
-                  v
-              MONITORING
-                  |
-                  v
-                 ANSWER
+             USER INTERFACE
+                    |
+                    v
+             AGENT CORE
+                    |
+          +---------+---------+
+          |                   |
+          v                   v
+      LLM CLIENT          PLANNER
+          |                   |
+          v                   v
+       OLLAMA             TASK PLAN
+          |                   |
+          +---------+---------+
+                    |
+                    v
+              TOOL REGISTRY
+                    |
+             PERMISSION CHECK
+                    |
+                    v
+               TOOL BRIDGE
+                    |
+                    v
+               TOOL EXECUTOR
+                    |
+          +---------+----------+
+          |         |          |
+          v         v          v
+       Security   Log       System
+       Analyzer  Analyzer  Diagnostics
+                    |
+                    v
+              TOOL RESULTS
+                    |
+                    v
+             AGENT OBSERVATION
+                    |
+                    v
+             FINAL RESPONSE
 ```
 
-The architecture is designed to separate decision-making, information retrieval, authorization and tool execution.
+The diagram represents the target architecture. Not all components and execution loops have been implemented yet.
+
+### Secure RAG Architecture
+
+```text
+       DOCUMENT INPUT
+              |
+              v
+       DOCUMENT LOADER
+              |
+              v
+        TEXT EXTRACTOR
+              |
+              v
+          CHUNKER
+              |
+              v
+          EMBEDDER
+              |
+              v
+       ENCRYPTED FAISS
+              |
+              v
+       SECURE RETRIEVER
+              |
+              v
+         RBAC / ACL
+              |
+              v
+       AUTHORIZED CONTEXT
+              |
+              v
+         LLM CLIENT
+```
 
 ---
 
-# 3. Security Architecture
+## Implemented Components
 
-Security is a fundamental part of the project rather than an additional feature.
+### 1. Authentication and Authorization
 
-## Authentication
-
-The authentication subsystem provides:
+The security foundation includes:
 
 - User authentication.
-- Password hashing using Argon2.
-- Session management.
-- User context initialization.
+- Password hashing with Argon2.
+- Role-Based Access Control (RBAC).
+- Document-level Access Control Lists (ACL).
+- User context management.
 
-## Authorization
+The purpose is to ensure that users can only retrieve information they are authorized to access.
 
-The authorization subsystem combines:
+### 2. Encrypted Vector Database
 
-- RBAC — Role-Based Access Control.
-- ACL — Access Control Lists.
-- User roles.
-- User groups.
-- Document-level permissions.
-- Document classification.
+The project uses FAISS for vector similarity search.
 
-A key architectural principle:
-
-**Vector similarity does not grant access to a document.**
-
-FAISS identifies potentially relevant information, while the permission subsystem determines whether the authenticated user is authorized to retrieve it.
-
-## Encrypted Vector Storage
-
-The project uses an encrypted FAISS-based vector storage implementation.
-
-Security properties include:
+Security mechanisms include:
 
 - AES-256-GCM encryption.
-- Data confidentiality.
-- Data integrity.
-- Encrypted storage of document content and metadata.
-- Mapping between document chunks and vector identifiers.
+- Encrypted vector index storage.
+- Integrity verification.
+- Encrypted document content and metadata.
+- Secure index persistence.
+- Separation of document identifiers and vector identifiers.
+- Atomic persistence operations.
+- Avoidance of unsafe pickle-based deserialization.
 
-## Prompt Security
+The embedding model currently used in the RAG foundation is:
 
-The security layer includes:
+`sentence-transformers/all-MiniLM-L6-v2`
 
-**PromptGuard**
-- Detecting suspicious user instructions.
-- Identifying potential prompt injection.
-- Applying input security rules.
+Embedding dimension: 384.
 
-**JailbreakDetector**
-- Detecting attempts to bypass LLM restrictions.
-- Identifying suspicious instruction patterns.
-- Providing an additional security inspection layer.
+### 3. Secure Retriever
 
-**Additional security components**
+Secure Retriever is responsible for retrieving relevant information while respecting authorization rules.
 
-The architecture also provides modules for:
+Its responsibilities include:
 
-- PII detection.
-- Input and output sanitization.
-- Security monitoring.
-- Application logging.
+- Semantic similarity search.
+- Document authorization.
+- ACL enforcement.
+- Filtering unauthorized information.
+- Preparing authorized context for the LLM.
 
----
+### 4. PromptGuard
 
-# 4. Secure RAG Engine
+PromptGuard provides an initial layer of protection against potentially malicious or unsafe prompts.
 
-Secure RAG is the information retrieval foundation of the AI agent.
+It analyzes incoming user requests using configurable security rules.
 
-The retrieval pipeline:
+### 5. JailbreakDetector
 
-```text
-             USER QUERY
-                  |
-                  v
-             EMBEDDINGS
-                  |
-                  v
-              FAISS
-                  |
-                  v
-          VECTOR SIMILARITY
-                  |
-                  v
-          CANDIDATE DOCUMENTS
-                  |
-                  v
-             RBAC / ACL
-                  |
-           +------+------+
-           |             |
-           v             v
-         ALLOW          DENY
-           |             |
-           v             X
-      AUTHORIZED
-        CONTEXT
-           |
-           v
-         LLM
-           |
-           v
-        RESPONSE
-```
+JailbreakDetector is designed to identify attempts to bypass the intended security restrictions of the system.
 
-The retrieval subsystem is designed to ensure that only authorized information can enter the LLM context.
+It complements PromptGuard as part of the input security pipeline.
 
-This separation is particularly important in systems processing confidential or restricted documents.
+### 6. Ollama Integration
 
----
+The project is integrating Ollama as its local LLM inference provider.
 
-# 5. Local LLM Integration
+Installed models:
 
-The planned language model integration uses **Ollama**.
+- `qwen2.5:3b`
+- `phi3:latest`
 
-The objective is to run language models locally instead of relying exclusively on external AI APIs.
+The Ollama client has been extended to support:
 
-Planned capabilities:
+- `/api/generate`
+- `/api/chat`
+- Chat messages.
+- Tool definitions.
+- Tool call parsing.
+- Structured tool-call responses.
 
-- Local LLM inference.
-- RAG-based response generation.
-- Context-aware responses.
-- Integration with the Agent Core.
-- Controlled access to registered tools.
+The Qwen 2.5 3B model has been verified to advertise tool-calling capabilities through Ollama.
 
-Local inference offers additional control over data processing and deployment.
+The implementation of the complete agent-side tool execution cycle is still in progress.
 
-However, local execution alone does not guarantee security. Model access, tool permissions and data handling must also be protected.
+### 7. Tool Registry and Execution Foundation
+
+The project is developing a controlled tool execution architecture.
+
+Its components include:
+
+- Tool Registry.
+- Tool Permissions.
+- Tool Executor.
+- Tool Bridge.
+
+The objective is to prevent the LLM from executing arbitrary operations directly.
+
+Instead, the model should request available tools through a controlled interface, where permissions and input validation can be enforced.
 
 ---
 
-# 6. Agentic Architecture
+## Current Development Progress
 
-The next major development step is transforming Secure RAG into a functional AI agent.
+**Development snapshot: November 24, 2026**
 
-The planned architecture introduces three major components.
-
-## 6.1 Tool Registry
-
-A centralized registry of tools available to the AI agent.
-
-Responsibilities:
-
-- Tool registration.
-- Tool discovery.
-- Input validation.
-- Permission verification.
-- Controlled tool execution.
-- Tool result handling.
-
-Potential tools:
-
-| Tool | Purpose |
+| Component | Status |
 |---|---|
-| Secure RAG | Authorized document retrieval |
-| Security Analyzer | Security information analysis |
-| Log Analyzer | Application and system log analysis |
-| Network Monitor | Network information monitoring |
-| System Diagnostics | Controlled system diagnostics |
+| Authentication | Implemented |
+| Argon2 Password Hashing | Implemented |
+| RBAC | Implemented |
+| Document ACL | Implemented |
+| Encrypted FAISS | Implemented |
+| AES-256-GCM | Implemented |
+| Secure Retriever | Implemented |
+| PromptGuard | Implemented |
+| JailbreakDetector | Implemented |
+| Ollama Client | Implemented / Under Testing |
+| Ollama Chat API | Implemented |
+| Tool Call Parser | Under Testing |
+| Tool Registry | Implemented / Under Testing |
+| Tool Permissions | Implemented / Under Testing |
+| Tool Executor | Implemented / Under Testing |
+| Tool Bridge | In Development |
+| Agent Core | Planned |
+| Reason-Act-Observe Loop | Planned |
+| Autonomous Planning | Planned |
+| Agent Memory | Planned |
+| Human-in-the-Loop | Planned |
+| Audit Logging | Planned |
 
-These are planned integration targets, not a claim that every tool is already implemented.
+**Important:** Implemented modules do not necessarily mean that their complete end-to-end integration has been validated.
 
-## 6.2 Agent Core
+### Recent Testing Progress
 
-The central decision-making component.
+The following results have been recorded during development:
 
-Responsibilities:
-
-- Processing user requests.
-- Understanding task objectives.
-- Selecting appropriate tools.
-- Managing execution workflows.
-- Using retrieved context.
-- Evaluating tool results.
-- Generating responses.
-
-The Agent Core will operate within defined security and authorization boundaries.
-
-## 6.3 Agent Execution Flow
-
-The intended execution model:
-
-```text
-             USER REQUEST
-                   |
-                   v
-             INPUT SECURITY
-                   |
-                   v
-               AGENT CORE
-                   |
-                   v
-             TASK ANALYSIS
-                   |
-                   v
-              TOOL SELECTION
-                   |
-                   v
-            PERMISSION CHECK
-                   |
-             +-----+-----+
-             |           |
-             v           v
-           ALLOW        DENY
-             |           |
-             v           X
-         TOOL EXECUTION
-             |
-             v
-         RESULT ANALYSIS
-             |
-             v
-         CONTEXT / MEMORY
-             |
-             v
-          LLM RESPONSE
-             |
-             v
-        OUTPUT VALIDATION
-             |
-             v
-           MONITORING
-             |
-             v
-            RESULT
-```
-
-Tool execution is intended to be controlled rather than unrestricted.
-
----
-
-# 7. Technology Stack
-
-| Technology | Application |
+| Test Area | Result |
 |---|---|
-| Python 3.12+ | Core development |
-| FAISS | Vector similarity search |
-| Sentence Transformers | Embeddings |
-| Ollama | Local LLM inference (planned integration) |
-| AES-256-GCM | Data encryption |
-| Argon2 | Password hashing |
-| SQLite | Local persistence |
-| RBAC / ACL | Access control |
-| Pytest | Testing |
-| Git / GitHub | Version control |
+| Existing regression suite | 72 passed |
+| Ollama adapter tests | 40 passed |
+| Parser tests | 41 passed, 1 failed |
+| Extended regression | 154 passed (reported during development) |
+
+The parser failure identified during development concerned the test helper's handling of an explicit `tool_calls=None` value.
+
+Additional integration testing is required before considering the entire tool execution pipeline validated.
 
 ---
 
-# 8. Project Structure
+## Technology Stack
 
-The repository is organized into modular components.
-
-```text
-secure-rag/
-│
-├── authentication/
-│   ├── auth.py
-│   └── permissions.py
-│
-├── database/
-│
-├── documents/
-│
-├── embeddings/
-│   └── embedder.py
-│
-├── encryption/
-│
-├── retrieval/
-│   └── retriever.py
-│
-├── security/
-│   ├── prompt_guard.py
-│   ├── jailbreak_detector.py
-│   ├── pii_detector.py
-│   └── sanitizer.py
-│
-├── vectorstore/
-│   └── encrypted_faiss.py
-│
-├── tests/
-│
-├── app.py
-├── config.py
-├── requirements.txt
-└── README.md
-```
-
-The structure will evolve as the Agent Core, Tool Registry and additional components are integrated.
+| Category | Technologies |
+|---|---|
+| Programming Language | Python |
+| Local LLM Runtime | Ollama |
+| Language Models | Qwen 2.5 3B, Phi-3 |
+| Vector Database | FAISS |
+| Embeddings | Sentence Transformers |
+| Embedding Model | all-MiniLM-L6-v2 |
+| Database | SQLite |
+| Security | AES-256-GCM, Argon2 |
+| Authorization | RBAC, ACL |
+| AI Architecture | RAG, Tool Calling, Agent Architecture |
+| Testing | Pytest |
+| Version Control | Git, GitHub |
 
 ---
 
-# 9. Development Roadmap
+## Security Architecture
 
-Development is divided into incremental stages.
+Security is one of the main architectural principles of WW-P Security AI Agent.
 
-| Stage | Component | Status |
-|---|---|---|
-| 1 | Secure RAG integration and testing | In progress |
-| 2 | Ollama integration | Planned |
-| 3 | Tool Registry | Planned |
-| 4 | Agent Core | Planned |
-| 5 | Agent execution workflow | Planned |
-| 6 | Security validation and testing | Planned |
-| 7 | Documentation and portfolio release | Planned |
+The project follows several important design principles:
 
-### Stage 1 — Secure RAG Foundation
+**1. Least Privilege**
 
-Objectives:
+Users and tools should receive only the permissions necessary to perform their assigned tasks.
 
-- Integrate authentication.
-- Integrate RBAC/ACL.
-- Connect embeddings.
-- Integrate encrypted FAISS.
-- Implement secure retrieval.
-- Verify security mechanisms.
-- Complete integration and functional tests.
+**2. Controlled Tool Execution**
 
-### Stage 2 — Local LLM
+LLM-generated tool calls must pass through a controlled execution layer.
 
-Objectives:
+**3. Access Control**
 
-- Integrate Ollama.
-- Configure a local language model.
-- Connect retrieved context to the LLM.
-- Implement response generation.
-- Validate model input and output.
+Document retrieval must respect user roles and document-level permissions.
 
-### Stage 3 — Tool Registry
+**4. Data Protection**
 
-Objectives:
+Sensitive vector data and document information are protected using encryption.
 
-- Create a centralized tool registry.
-- Define tool interfaces.
-- Implement tool registration.
-- Validate tool inputs.
-- Introduce permission-based execution.
+**5. Input Validation**
 
-### Stage 4 — Agent Core
+Prompts and tool arguments should be checked before processing or execution.
 
-Objectives:
+**6. Human Oversight**
 
-- Implement task analysis.
-- Introduce tool selection.
-- Implement agent orchestration.
-- Connect the Agent Core to Secure RAG.
-- Integrate Ollama.
+Sensitive operations are intended to require explicit human approval.
 
-### Stage 5 — Agentic Execution
+**7. Auditability**
 
-Objectives:
+Important operations should be recorded to support troubleshooting and security analysis.
 
-- Implement controlled tool execution.
-- Process tool results.
-- Introduce multi-step workflows.
-- Implement execution limits.
-- Add error handling and monitoring.
-
-### Stage 6 — Security Validation
-
-Objectives:
-
-- Test authentication and authorization.
-- Test prompt injection protection.
-- Test jailbreak detection.
-- Test encrypted storage.
-- Validate tool permissions.
-- Perform integration and regression testing.
+These principles guide the ongoing development of the system. Some controls remain planned rather than fully implemented.
 
 ---
 
-# 10. Installation
+## Installation
 
-## Requirements
+### Requirements
 
-- Python 3.12+
-- Git
-- Windows or Linux
-- Local development environment
+- Python 3.10 or newer.
+- Git.
+- Ollama.
+- Windows or Linux.
+- Sufficient RAM for the selected local language model.
 
-Clone the repository:
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/PiotrIT2015/secure-rag.git
-```
 
-Navigate to the project:
-
-```bash
 cd secure-rag
 ```
 
-Create a virtual environment:
+### 2. Create a Virtual Environment
 
-```bash
-python -m venv .venv
-```
-
-Activate it.
-
-Windows PowerShell:
+Windows:
 
 ```powershell
-.venv\Scripts\Activate.ps1
+python -m venv venv
+
+.\venv\Scripts\Activate.ps1
 ```
 
 Linux:
 
 ```bash
-source .venv/bin/activate
+python3 -m venv venv
+
+source venv/bin/activate
 ```
 
-Install dependencies:
+### 3. Install Dependencies
 
 ```bash
 python -m pip install --upgrade pip
+
 pip install -r requirements.txt
+```
+
+### 4. Install Ollama
+
+Download and install Ollama from:
+
+https://ollama.com/
+
+Download the selected models:
+
+```bash
+ollama pull qwen2.5:3b
+
+ollama pull phi3:latest
+```
+
+Verify the installation:
+
+```bash
+ollama list
+```
+
+Check model capabilities:
+
+```bash
+ollama show qwen2.5:3b
 ```
 
 ---
 
-# 11. Running the Application
+## Configuration
 
-Start the application from the project directory:
+The application requires configuration of its security credentials and local AI provider.
+
+Configuration should be stored in environment variables or a local `.env` file.
+
+Example configuration template:
+
+```env
+OLLAMA_HOST=http://localhost:11434
+
+OLLAMA_MODEL=qwen2.5:3b
+
+JWT_SECRET_KEY=your-generated-secret
+
+DATABASE_URL=your-database-configuration
+```
+
+**Security recommendations:**
+
+- Never commit `.env` files.
+- Never publish authentication secrets.
+- Generate unique cryptographic secrets.
+- Use strong passwords.
+- Protect encrypted database and vector-store files.
+- Do not expose local AI services to untrusted networks.
+
+The exact variable names should match the application's configuration implementation.
+
+---
+
+## Running the Project
+
+The execution entry point depends on the currently integrated application version.
+
+For the existing application:
 
 ```bash
 python app.py
 ```
 
-The application currently focuses on the Secure RAG foundation.
+For test execution:
 
-Ollama integration and the autonomous agent execution layer are subsequent development stages.
-
----
-
-# 12. Security Considerations
-
-This project is developed as a security-oriented AI architecture prototype.
-
-Important considerations:
-
-- Never commit API keys or encryption secrets.
-- Use environment variables for sensitive configuration.
-- Protect encryption keys.
-- Validate user input.
-- Enforce authorization before exposing retrieved content.
-- Restrict tool execution.
-- Log security-relevant events.
-- Test security boundaries independently.
-
-The project is not currently presented as a production-ready security product.
+```bash
+python -m pytest tests/ -v
+```
 
 ---
 
-# 13. Project Goals
+## Testing
 
-The long-term objective is to develop a modular AI agent combining:
+Testing is an important part of the development process.
 
-**Artificial Intelligence**
-- Local LLMs.
-- Retrieval-Augmented Generation.
-- Agentic workflows.
-- Tool integration.
+The project uses Pytest to validate individual components and their interactions.
 
-**Cybersecurity**
-- Authentication.
-- Authorization.
-- Encrypted data storage.
+Example commands:
+
+```bash
+python -m pytest tests/test_tool_permissions.py -v
+```
+
+```bash
+python -m pytest tests/test_ollama_tool_integration.py -v
+```
+
+```bash
+python -m pytest tests/ -v
+```
+
+Testing priorities include:
+
+- Authentication and authorization.
+- Document access control.
+- Vector database encryption.
+- Retrieval correctness.
 - Prompt injection detection.
 - Jailbreak detection.
-- Security monitoring.
-
-**Software Engineering**
-- Modular architecture.
-- Python development.
-- Integration testing.
-- Error handling.
-- Documentation.
+- Ollama communication.
+- Tool-call parsing.
+- Tool permission enforcement.
+- Tool execution.
+- Agent workflow security.
 
 ---
 
-# 14. Author
+## Development Roadmap
 
-**Piotr Prochnicki**
+The development process is divided into several stages.
 
-IT Support & DevOps-oriented IT specialist  
-Interested in AI Engineering, Cybersecurity and Agentic Systems.
+| Stage | Description | Status |
+|---|---|---|
+| 1 | Secure RAG Foundation and Integration | In Progress |
+| 2 | Ollama Integration | In Progress |
+| 3 | Tool Registry and Permissions | In Progress |
+| 4 | Agent Core | Planned |
+| 5 | Reason → Act → Observe | Planned |
+| 6 | Planning and Agent Memory | Planned |
+| 7 | Human-in-the-Loop | Planned |
+| 8 | Security Validation and Monitoring | Planned |
+| 9 | Integration and End-to-End Testing | Planned |
+| 10 | Documentation and Release | Planned |
 
-GitHub: https://github.com/PiotrIT2015
+### Immediate Development Priorities
 
-Portfolio: https://piotrit2015.github.io
-
----
-
-# 15. License
-
-See the LICENSE file in this repository.
-
----
-
-*WW-P Security AI Agent — Building AI systems with security as a fundamental architectural principle.*
-
-### Secure by Design
-
-Security checks should occur before sensitive information reaches the LLM.
-
-### Explicit Trust Boundaries
-
-External files, retrieved documents and user prompts are treated as untrusted input.
-
-### Fail Closed
-
-When authorization cannot be established, access should be denied rather than granted.
+1. Complete the Ollama tool-call integration tests.
+2. Finalize Tool Bridge.
+3. Verify the complete Tool Registry → Tool Executor execution path.
+4. Connect the LLM to the tool execution layer.
+5. Implement the first functional Agent Core.
+6. Introduce the Reason → Act → Observe workflow.
 
 ---
 
-# 18. Technology Stack
+## Planned Agent Capabilities
 
-Current/planned technology stack:
+The long-term vision includes several specialized tools.
 
-```text
-Python 3.12+
-    |
-    +-- Argon2
-    +-- Cryptography
-    +-- FAISS
-    +-- NumPy
-    +-- Embedding model
-    +-- LLM
-    +-- SQLite
-    +-- Tkinter
-    +-- YARA
-```
+### Security Analyzer
 
-Potential local AI infrastructure:
+Potential capabilities:
 
-```text
-WW-P Secure RAG
-       |
-       v
-Embedding Model
-       |
-       v
-Encrypted FAISS
-       |
-       v
-Local LLM / Ollama
-```
+- Security configuration analysis.
+- Identification of suspicious activity.
+- Basic security assessment.
+- Interpretation of security-related information.
 
-This architecture can support local/private deployments where documents should not be sent to an external AI provider.
+### Log Analyzer
 
----
+Potential capabilities:
 
-# 19. Project Goals
+- Log file analysis.
+- Error identification.
+- Event classification.
+- Detection of suspicious patterns.
 
-The long-term objective is to create a modular security-oriented RAG platform that can demonstrate practical knowledge of:
+### Network Monitor
 
-* Python software engineering,
-* cybersecurity,
-* authentication,
-* authorization,
-* cryptography,
-* secure document processing,
-* vector databases,
-* embeddings,
-* LLMs,
-* RAG architecture,
-* prompt security,
-* data protection,
-* monitoring.
+Potential capabilities:
 
-The project is intended as a portfolio and engineering-learning project rather than a claim of production-grade certification or security assurance.
+- Network diagnostics.
+- Connectivity checks.
+- Network information analysis.
+- Integration with existing monitoring utilities.
+
+### System Diagnostics
+
+Potential capabilities:
+
+- System information collection.
+- Resource utilization analysis.
+- Service diagnostics.
+- Basic troubleshooting assistance.
+
+### Secure RAG
+
+Provides the agent with access to an authorized technical knowledge base.
+
+These are planned integrations and should not be interpreted as currently available autonomous capabilities.
 
 ---
 
-# 20. Security Disclaimer
+## Project Limitations
 
-WW-P Secure RAG is a development and portfolio project.
+WW-P Security AI Agent is an experimental development project.
 
-It should **not** be assumed to be secure for production deployment solely because individual security mechanisms are implemented.
+The current implementation focuses on building and validating its security and AI foundations.
 
-Before production use, the system would require, among other things:
+The following capabilities are not yet considered complete:
 
-* threat modeling,
-* dependency auditing,
-* penetration testing,
-* secure secret management,
-* key rotation,
-* hardened deployment,
-* access-control review,
-* logging and audit review,
-* fuzz testing,
-* vulnerability scanning,
-* secure configuration management,
-* independent security assessment.
+- Fully autonomous agent execution.
+- Complete multi-step planning.
+- Persistent agent memory.
+- End-to-end Reason-Act-Observe workflow.
+- Production-grade human approval mechanisms.
+- Complete audit and monitoring infrastructure.
+- Comprehensive security validation.
 
-Security controls should be independently validated before handling sensitive production information.
-
----
-
-# 21. Recommended Development Workflow
-
-Development should proceed in small, testable stages:
-
-```text
-1. Authentication
-       |
-       v
-2. Authorization
-       |
-       v
-3. Document Processing
-       |
-       v
-4. Embeddings
-       |
-       v
-5. Encrypted Vector Store
-       |
-       v
-6. Secure Retrieval
-       |
-       v
-7. Prompt Security
-       |
-       v
-8. LLM
-       |
-       v
-9. Output Security
-       |
-       v
-10. Monitoring
-       |
-       v
-11. GUI
-```
-
-Each layer should be tested independently before integrating it with the next one.
-
----
-
-# 22. Example Final Architecture
-
-The intended final architecture is:
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    WW-P SECURE RAG                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐                                           │
-│  │     GUI      │                                           │
-│  │   Tkinter    │                                           │
-│  └──────┬───────┘                                           │
-│         │                                                   │
-│         v                                                   │
-│  ┌──────────────┐                                           │
-│  │     APP      │                                           │
-│  │  Orchestrator│                                          │
-│  └──────┬───────┘                                           │
-│         │                                                   │
-│    ┌────┴───────────────────────────┐                       │
-│    │                                │                       │
-│    v                                v                       │
-│ Authentication                 Security                     │
-│    │                         ┌──────────────┐                │
-│    v                         │ Prompt Guard │                │
-│ UserContext                  │ Jailbreak    │                │
-│    │                         │ PII          │                │
-│    v                         │ Sanitizer    │                │
-│ RBAC / ACL                   └──────────────┘                │
-│    │                                                        │
-│    └───────────────┐                                        │
-│                    v                                        │
-│             Secure Retriever                                │
-│                    │                                        │
-│           ┌────────┴────────┐                               │
-│           v                 v                               │
-│      Embeddings       Encrypted FAISS                       │
-│                             │                               │
-│                             v                               │
-│                       Authorized                            │
-│                         Context                             │
-│                             │                               │
-│                             v                               │
-│                            LLM                              │
-│                             │                               │
-│                             v                               │
-│                         Sanitizer                           │
-│                             │                               │
-│                             v                               │
-│                           User                              │
-│                                                             │
-├─────────────────────────────────────────────────────────────┤
-│ Monitoring │ Logging │ Metrics │ SQLite │ Cryptography      │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-# 23. Status
-
-Current development status:
-
-| Component               | Status |
-| ----------------------- | ------ |
-| Project structure       | ✅      |
-| `app.py`                | ✅      |
-| Configuration           | 🟡     |
-| Authentication          | ✅      |
-| Argon2 password hashing | ✅      |
-| UserContext             | ✅      |
-| RBAC                    | 🟡     |
-| ACL                     | 🟡     |
-| Document loader         | 🟡     |
-| Document extractor      | 🟡     |
-| Chunking                | 🟡     |
-| Embeddings              | 🟡     |
-| Encrypted FAISS         | 🟡     |
-| Secure Retriever        | ✅      |
-| Prompt Guard            | 🟡     |
-| Jailbreak Detector      | ✅     |
-| PII Detector            | ✅     |
-| Sanitizer               | ✅     |
-| LLM integration         | 🟡     |
-| Monitoring              | 🟡     |
-| SQLite persistence      | 🟡     |
-| Tkinter GUI             | 🟡     |
-| End-to-end integration  | 🔜     |
-| Security testing        | 🔜     |
-
-Legend:
-
-```text
-✅ implemented
-🟡 in development / integration
-🔜 planned
-```
-
----
-
-# 24. Conclusion
-
-WW-P Secure RAG is an attempt to treat RAG not merely as an AI application, but as a **security-sensitive information system**.
-
-The fundamental architectural distinction is:
-
-```text
-Semantic relevance ≠ authorization
-```
-
-A document can be highly relevant to a user's query and still be inaccessible to that user.
-
-Therefore:
-
-```text
-Vector Search
-     ≠
-Access Control
-```
-
-The Secure RAG architecture places authorization between retrieval and LLM generation:
-
-```text
-             Vector Search
-                   |
-                   v
-             Candidates
-                   |
-                   v
-             RBAC / ACL
-                   |
-                   v
-         Authorized Context
-                   |
-                   v
-                  LLM
-```
-
-This principle forms the foundation of the WW-P Secure RAG security architecture.
-
----
-
-## License
-
-License: Proprietary — All Rights Reserved
-This software is proprietary and confidential. No copying, modification, distribution, redistribution, 
-or commercial use is permitted without prior written authorization from the copyright holder. 
-Licensing inquiries: piotr.prochnicki@gmail.com
+The system should not currently be used as an autonomous production cybersecurity platform.
 
 ---
 
 ## Author
 
-**Piotr Próchnicki**
+**Piotr Prochnicki**
 
-WW-P Secure RAG — Python / Cybersecurity / AI Security Portfolio Project.
+IT Support | DevOps | AI & Cybersecurity
+
+GitHub:
+
+https://github.com/PiotrIT2015
+
+Project repository:
+
+https://github.com/PiotrIT2015/secure-rag
+
+Portfolio:
+
+https://piotrit2015.github.io/
+
+---
+
+## Development Philosophy
+
+WW-P Security AI Agent is developed with a security-first approach.
+
+The project explores how local language models, Retrieval-Augmented Generation, controlled tool execution, and agent-based architectures can work together to support cybersecurity and IT operations.
+
+The goal is not simply to build another AI chatbot.
+
+The goal is to develop a modular, explainable, permission-aware AI assistant capable of interacting with technical environments in a controlled and secure manner.
+
+**Build securely. Automate responsibly. Keep humans in control.**
