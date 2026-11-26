@@ -262,10 +262,12 @@ The guiding principle is that **agent capability must not bypass the security mo
 | Agent Core i Execution Loop | ✅ |
 | RAG Adapter i Context Builder | ✅ |
 | RAG Integration i E2E | ✅ |
-| 3.6.1 Response Quality Tests | ✅ |
-| 3.6.2 Hallucination Detection | ✅ |
-| 3.6.3 Insufficient Context Handling | ✅ |
-| **3.6.4 Citation Correctness** | Do realizacji |
-| 3.6.5 Prompt Injection Response Tests | Do realizacji |
-| 3.6.6 Cross-User Response Security | Do realizacji |
-| 3.6.7 Response Generator Integration Tests | Do realizacji |
+| Etap | Nazwa | Status |
+|---|---|---|
+| 3.6.1 | Response Quality Tests | ✅ |
+| 3.6.2 | Hallucination Detection | ✅ |
+| 3.6.3 | Insufficient Context Handling | ✅ |
+| 3.6.4 | Citation Correctness Tests | ✅ |
+| 3.6.5 | Prompt Injection Response Tests | ⏳ |
+| 3.6.6 | Cross-User Response Security | ⏳ |
+| 3.6.7 | Response Generator Integration Tests | ⏳ |
