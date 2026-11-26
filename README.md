@@ -1,643 +1,255 @@
 # WW-P Security AI Agent
 
-### Local AI-Powered Cybersecurity & System Administration Assistant
+**Status:** Active development — integration and validation phase  
+**Project:** Secure, tool-enabled AI agent built on top of the WW-P Secure RAG foundation  
+**Primary stack:** Python 3.10, Ollama, Qwen, FAISS, encrypted vector storage, pytest
 
-**WW-P Security AI Agent** is an evolving, security-oriented AI agent designed to support cybersecurity analysis, system administration, and intelligent IT operations.
-
-The project is being developed by extending a secure Retrieval-Augmented Generation (RAG) architecture with local Large Language Models (LLMs), controlled tool execution, and an agent-based reasoning architecture.
-
-Its primary objective is to combine local AI inference, secure knowledge retrieval, role-based access control, and controlled automation into a modular AI operations platform.
-
-> **Project status:** Active Development  
-> **Development date:** November 24, 2026  
-> **Current focus:** Secure RAG, Ollama integration, Tool Registry, and Agent Tool Bridge.
+> WW-P Security AI Agent is a security-oriented AI agent project that combines retrieval-augmented generation (RAG), access control, local LLM inference and controlled tool execution. The project is under active development. Individual components have been implemented and tested, but the complete end-to-end system has not yet been declared finished or production-ready.
 
 ---
 
-## Table of Contents
+## 1. Project overview
 
-- [Project Overview](#project-overview)
-- [Vision and Objectives](#vision-and-objectives)
-- [Architecture](#architecture)
-- [Implemented Components](#implemented-components)
-- [Current Development Progress](#current-development-progress)
-- [Technology Stack](#technology-stack)
-- [Security Architecture](#security-architecture)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Running the Project](#running-the-project)
-- [Testing](#testing)
-- [Development Roadmap](#development-roadmap)
-- [Planned Agent Capabilities](#planned-agent-capabilities)
-- [Project Limitations](#project-limitations)
-- [Author](#author)
+The goal of **WW-P Security AI Agent** is to build a local, security-conscious AI agent capable of:
 
----
+- answering questions using authorized internal knowledge,
+- retrieving information through a Secure RAG pipeline,
+- communicating with a locally hosted language model through Ollama,
+- selecting and executing registered tools through a controlled execution layer,
+- maintaining agent execution state and conversation context,
+- applying security controls before information is retrieved or actions are executed.
 
-## Project Overview
+The project builds on the **WW-P Secure RAG** foundation and extends it with agent orchestration and tool-use capabilities.
 
-WW-P Security AI Agent aims to provide an intelligent assistant capable of:
-
-- Analyzing cybersecurity-related information.
-- Interpreting technical documentation.
-- Retrieving authorized information from private knowledge bases.
-- Communicating with locally hosted LLMs.
-- Selecting and executing authorized tools.
-- Supporting IT troubleshooting and system diagnostics.
-- Assisting with network and security monitoring.
-
-Unlike a conventional chatbot, the planned system is designed around controlled tool execution and a modular agent architecture.
-
-Security is a fundamental design requirement rather than an additional feature.
-
-The project follows a local-first approach, using Ollama to run language models locally.
-
----
-
-## Vision and Objectives
-
-The long-term objective is to build a modular AI agent combining five major capabilities:
-
-1. **Secure Knowledge Retrieval** – retrieving information from authorized documents.
-2. **Local AI Intelligence** – using locally hosted language models.
-3. **Controlled Tool Execution** – interacting with system and security tools through permission-controlled interfaces.
-4. **Agent Reasoning** – planning and executing multi-step tasks.
-5. **Security and Accountability** – enforcing permissions, validating operations, and maintaining audit records.
-
-The architecture is intended to support both cybersecurity and general IT operations.
-
----
-
-## Architecture
-
-The system is being developed as a collection of independent modules.
-
-### Target Architecture
+## 2. High-level architecture
 
 ```text
-             USER INTERFACE
-                    |
-                    v
-             AGENT CORE
-                    |
-          +---------+---------+
-          |                   |
-          v                   v
-      LLM CLIENT          PLANNER
-          |                   |
-          v                   v
-       OLLAMA             TASK PLAN
-          |                   |
-          +---------+---------+
-                    |
-                    v
-              TOOL REGISTRY
-                    |
-             PERMISSION CHECK
-                    |
-                    v
-               TOOL BRIDGE
-                    |
-                    v
-               TOOL EXECUTOR
-                    |
-          +---------+----------+
-          |         |          |
-          v         v          v
-       Security   Log       System
-       Analyzer  Analyzer  Diagnostics
-                    |
-                    v
-              TOOL RESULTS
-                    |
-                    v
-             AGENT OBSERVATION
-                    |
-                    v
-             FINAL RESPONSE
+                         USER
+                           |
+                           v
+                 WW-P SECURITY AI AGENT
+                           |
+                           v
+                       AGENT CORE
+                           |
+                +----------+----------+
+                |                     |
+                v                     v
+           SECURE RAG             TOOL SYSTEM
+                |                     |
+        +-------+-------+       +-----+------+
+        |               |       |            |
+        v               v       v            v
+   RETRIEVER       ACCESS       TOOL       PERMISSIONS
+                   CONTROL      REGISTRY
+        |                           |
+        v                           v
+ AUTHORIZED CONTEXT            TOOL EXECUTOR
+        |                           |
+        +-------------+-------------+
+                      |
+                      v
+                 OLLAMA / QWEN
+                      |
+                      v
+             RESPONSE GENERATION
+                      |
+                      v
+                FINAL RESPONSE
 ```
 
-The diagram represents the target architecture. Not all components and execution loops have been implemented yet.
-
-### Secure RAG Architecture
+The intended agent execution cycle is:
 
 ```text
-       DOCUMENT INPUT
-              |
-              v
-       DOCUMENT LOADER
-              |
-              v
-        TEXT EXTRACTOR
-              |
-              v
-          CHUNKER
-              |
-              v
-          EMBEDDER
-              |
-              v
-       ENCRYPTED FAISS
-              |
-              v
-       SECURE RETRIEVER
-              |
-              v
-         RBAC / ACL
-              |
-              v
-       AUTHORIZED CONTEXT
-              |
-              v
-         LLM CLIENT
+REASON -> ACT -> OBSERVE -> EVALUATE -> RESPOND
 ```
 
----
-
-## Implemented Components
-
-### 1. Authentication and Authorization
-
-The security foundation includes:
-
-- User authentication.
-- Password hashing with Argon2.
-- Role-Based Access Control (RBAC).
-- Document-level Access Control Lists (ACL).
-- User context management.
-
-The purpose is to ensure that users can only retrieve information they are authorized to access.
-
-### 2. Encrypted Vector Database
-
-The project uses FAISS for vector similarity search.
-
-Security mechanisms include:
-
-- AES-256-GCM encryption.
-- Encrypted vector index storage.
-- Integrity verification.
-- Encrypted document content and metadata.
-- Secure index persistence.
-- Separation of document identifiers and vector identifiers.
-- Atomic persistence operations.
-- Avoidance of unsafe pickle-based deserialization.
-
-The embedding model currently used in the RAG foundation is:
-
-`sentence-transformers/all-MiniLM-L6-v2`
-
-Embedding dimension: 384.
-
-### 3. Secure Retriever
-
-Secure Retriever is responsible for retrieving relevant information while respecting authorization rules.
-
-Its responsibilities include:
-
-- Semantic similarity search.
-- Document authorization.
-- ACL enforcement.
-- Filtering unauthorized information.
-- Preparing authorized context for the LLM.
-
-### 4. PromptGuard
-
-PromptGuard provides an initial layer of protection against potentially malicious or unsafe prompts.
-
-It analyzes incoming user requests using configurable security rules.
-
-### 5. JailbreakDetector
-
-JailbreakDetector is designed to identify attempts to bypass the intended security restrictions of the system.
-
-It complements PromptGuard as part of the input security pipeline.
-
-### 6. Ollama Integration
-
-The project is integrating Ollama as its local LLM inference provider.
-
-Installed models:
-
-- `qwen2.5:3b`
-- `phi3:latest`
-
-The Ollama client has been extended to support:
-
-- `/api/generate`
-- `/api/chat`
-- Chat messages.
-- Tool definitions.
-- Tool call parsing.
-- Structured tool-call responses.
-
-The Qwen 2.5 3B model has been verified to advertise tool-calling capabilities through Ollama.
-
-The implementation of the complete agent-side tool execution cycle is still in progress.
-
-### 7. Tool Registry and Execution Foundation
-
-The project is developing a controlled tool execution architecture.
-
-Its components include:
-
-- Tool Registry.
-- Tool Permissions.
-- Tool Executor.
-- Tool Bridge.
-
-The objective is to prevent the LLM from executing arbitrary operations directly.
-
-Instead, the model should request available tools through a controlled interface, where permissions and input validation can be enforced.
-
----
-
-## Current Development Progress
-
-**Development snapshot: November 24, 2026**
-
-| Component | Status |
-|---|---|
-| Authentication | Implemented |
-| Argon2 Password Hashing | Implemented |
-| RBAC | Implemented |
-| Document ACL | Implemented |
-| Encrypted FAISS | Implemented |
-| AES-256-GCM | Implemented |
-| Secure Retriever | Implemented |
-| PromptGuard | Implemented |
-| JailbreakDetector | Implemented |
-| Ollama Client | Implemented / Under Testing |
-| Ollama Chat API | Implemented |
-| Tool Call Parser | Under Testing |
-| Tool Registry | Implemented / Under Testing |
-| Tool Permissions | Implemented / Under Testing |
-| Tool Executor | Implemented / Under Testing |
-| Tool Bridge | In Development |
-| Agent Core | Planned |
-| Reason-Act-Observe Loop | Planned |
-| Autonomous Planning | Planned |
-| Agent Memory | Planned |
-| Human-in-the-Loop | Planned |
-| Audit Logging | Planned |
-
-**Important:** Implemented modules do not necessarily mean that their complete end-to-end integration has been validated.
-
-### Recent Testing Progress
-
-The following results have been recorded during development:
-
-| Test Area | Result |
-|---|---|
-| Existing regression suite | 72 passed |
-| Ollama adapter tests | 40 passed |
-| Parser tests | 41 passed, 1 failed |
-| Extended regression | 154 passed (reported during development) |
-
-The parser failure identified during development concerned the test helper's handling of an explicit `tool_calls=None` value.
-
-Additional integration testing is required before considering the entire tool execution pipeline validated.
-
----
-
-## Technology Stack
-
-| Category | Technologies |
-|---|---|
-| Programming Language | Python |
-| Local LLM Runtime | Ollama |
-| Language Models | Qwen 2.5 3B, Phi-3 |
-| Vector Database | FAISS |
-| Embeddings | Sentence Transformers |
-| Embedding Model | all-MiniLM-L6-v2 |
-| Database | SQLite |
-| Security | AES-256-GCM, Argon2 |
-| Authorization | RBAC, ACL |
-| AI Architecture | RAG, Tool Calling, Agent Architecture |
-| Testing | Pytest |
-| Version Control | Git, GitHub |
-
----
-
-## Security Architecture
-
-Security is one of the main architectural principles of WW-P Security AI Agent.
-
-The project follows several important design principles:
-
-**1. Least Privilege**
-
-Users and tools should receive only the permissions necessary to perform their assigned tasks.
-
-**2. Controlled Tool Execution**
-
-LLM-generated tool calls must pass through a controlled execution layer.
-
-**3. Access Control**
-
-Document retrieval must respect user roles and document-level permissions.
-
-**4. Data Protection**
-
-Sensitive vector data and document information are protected using encryption.
-
-**5. Input Validation**
-
-Prompts and tool arguments should be checked before processing or execution.
-
-**6. Human Oversight**
-
-Sensitive operations are intended to require explicit human approval.
-
-**7. Auditability**
-
-Important operations should be recorded to support troubleshooting and security analysis.
-
-These principles guide the ongoing development of the system. Some controls remain planned rather than fully implemented.
-
----
-
-## Installation
-
-### Requirements
-
-- Python 3.10 or newer.
-- Git.
-- Ollama.
-- Windows or Linux.
-- Sufficient RAM for the selected local language model.
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/PiotrIT2015/secure-rag.git
-
-cd secure-rag
-```
-
-### 2. Create a Virtual Environment
-
-Windows:
+The complete cycle, including all integrations and security boundaries, still requires end-to-end verification.
+
+## 3. Implemented components and current status
+
+The table below reflects development progress known as of **26 November 2026**. “Implemented” does not automatically mean that the component has passed full-system or production-level validation.
+
+| Component | Current status | Notes |
+|---|---|---|
+| Authentication | Implemented | Authentication foundation is present. |
+| RBAC / ACL | Implemented | Role- and access-control mechanisms are present. |
+| Document processing | Implemented | Secure RAG document pipeline. |
+| Embeddings | Implemented | `sentence-transformers/all-MiniLM-L6-v2`, 384 dimensions, normalized embeddings. |
+| Encrypted vector storage | Implemented | FAISS storage protected with AES-256-GCM. |
+| Secure retrieval | Implemented | Retrieval is integrated with access-control checks. |
+| PromptGuard | Implemented | Prompt security rules are present. |
+| Jailbreak detection | Implemented | Detection rules are present. |
+| Ollama client | Implemented | Local LLM communication layer. |
+| Qwen integration | In progress / configured | Qwen model has been prepared in the local Ollama environment; full application flow still needs validation. |
+| Tool Registry | Implemented | Tool registration layer. |
+| Tool Executor | Implemented | Controlled tool execution component. |
+| Tool permissions | Implemented | Permission checks for tool execution. |
+| Tool Call Parser | Implemented | Parses model tool-call requests. |
+| Tool Execution Bridge | Implemented | Connects agent tool requests with execution. |
+| Agent state and context | Implemented / tested | Agent state and context preparation are present. |
+| Agent Core | In integration | Core orchestration is being refined and tested. |
+| Agent execution loop | Implemented / tested | Iteration and tool-execution flow has dedicated tests. |
+| RAG Adapter | Implemented / tested | Dedicated adapter tests have passed. |
+| RAG Context Builder | Implemented / tested | Builds the context supplied to response generation. |
+| RAG integration | In validation | Component-level tests have passed; full response flow is still being checked. |
+| Response Generator | In validation | Latest reported test run: 5 passed and 12 failed out of 17. |
+| RAG response generation | In validation | Additional integration and response-generation tests are in progress. |
+| Conversation memory | Planned | Persistent or structured conversational memory remains to be completed and verified. |
+| Planning | Planned | Multi-step task planning. |
+| Evaluator | Planned | Evaluation of generated answers and agent actions. |
+| Human-in-the-Loop (HITL) | Planned | User approval for sensitive or consequential operations. |
+| End-to-end security validation | Pending | Requires integrated security and end-to-end testing. |
+
+## 4. Testing progress
+
+The project has a growing automated test suite covering the main building blocks.
+
+Previously reported successful test results include:
+
+| Test area | Reported result |
+|---|---:|
+| Tool Call Parser | 42 passed |
+| Tool Execution Bridge | 28 passed |
+| RAG Adapter | 17 passed |
+| RAG Context Builder | 13 passed |
+| Agent Core | 10 passed in an earlier test run |
+| Agent Execution Loop | 13 passed |
+| Earlier combined regression run | 219 passed |
+
+**Important:** These are results from separate test runs at earlier development points. They must not be added together or interpreted as the current total number of passing tests. They also do not prove that the complete application works end to end.
+
+### Latest known issue — 26 November 2026
+
+The latest reported run of:
 
 ```powershell
-python -m venv venv
-
-.\venv\Scripts\Activate.ps1
+python -m pytest tests/test_agent_response_generator.py -v
 ```
 
-Linux:
+reported:
 
-```bash
-python3 -m venv venv
-
-source venv/bin/activate
+```text
+12 failed, 5 passed
 ```
 
-### 3. Install Dependencies
+The failures indicate that response-generator validation and RAG-context validation still need attention. In particular, the current validation behavior does not yet match all test expectations, and a valid sample RAG context was rejected because of a source-count validation condition.
 
-```bash
-python -m pip install --upgrade pip
+The next step is to resolve these failures, rerun the focused tests, and then run the wider regression suite.
 
-pip install -r requirements.txt
+## 5. Security foundations
+
+The project is designed around security controls at multiple layers:
+
+- **Authentication:** identify the user interacting with the system.
+- **RBAC / ACL:** restrict access according to roles and document permissions.
+- **Secure retrieval:** return only information the requesting user is authorized to access.
+- **Encrypted vector storage:** protect the FAISS index using AES-256-GCM.
+- **Prompt protection:** apply PromptGuard and jailbreak-detection checks.
+- **Tool permissions:** restrict which tools can be invoked.
+- **Controlled execution:** route tool calls through the registry, executor and execution bridge.
+
+These controls are implemented as project components, but their effectiveness must be verified through integrated negative tests, adversarial tests and security review. The project should not be described as production-secure until that work is complete.
+
+## 6. Technology stack
+
+| Area | Technology |
+|---|---|
+| Programming language | Python 3.10 |
+| Local LLM runtime | Ollama |
+| Language model | Qwen (local model configuration) |
+| Embeddings | Sentence Transformers |
+| Embedding model | `sentence-transformers/all-MiniLM-L6-v2` |
+| Vector search | FAISS |
+| Vector index encryption | AES-256-GCM |
+| Testing | pytest |
+| Operating environment | Windows 11, Python virtual environment |
+
+Exact dependency versions and setup requirements should be taken from the repository's dependency files and environment configuration.
+
+## 7. Development roadmap
+
+The immediate priority is to finish the current integration work before adding more advanced agent features.
+
+### Priority 1 — Finish the current integration
+
+- [ ] Fix `agent/response_generator.py` validation issues.
+- [ ] Make RAG context validation consistent with the RAG context builder and source-attribution model.
+- [ ] Pass `tests/test_agent_response_generator.py`.
+- [ ] Pass the RAG response-generation tests.
+- [ ] Verify the integration between Agent Core, RAG Adapter, RAG Context Builder and Response Generator.
+- [ ] Run the full regression suite and record the current results.
+
+### Priority 2 — Verify real agent behavior
+
+- [ ] Run the complete application with Ollama and the configured Qwen model.
+- [ ] Verify a normal user question and a RAG-grounded answer.
+- [ ] Verify that unauthorized documents are not disclosed.
+- [ ] Verify tool selection, permission checks and tool execution.
+- [ ] Verify iteration limits and error handling.
+- [ ] Verify the complete Reason → Act → Observe cycle.
+
+### Priority 3 — Extend agent capabilities
+
+- [ ] Conversation memory.
+- [ ] Multi-step planning.
+- [ ] Evaluator for responses and actions.
+- [ ] Human-in-the-Loop approval for sensitive actions.
+
+### Priority 4 — Release readiness
+
+- [ ] End-to-end tests.
+- [ ] Security and adversarial tests.
+- [ ] Configuration and secrets review.
+- [ ] Logging and error-handling review.
+- [ ] Installation and usage documentation.
+- [ ] Final release checklist and versioning.
+
+## 8. Current project maturity
+
+At the current stage, the project can be described as:
+
+- **Secure RAG foundation:** substantially implemented.
+- **Tool system:** implemented at component level.
+- **Agent orchestration:** under active integration and validation.
+- **Complete autonomous agent workflow:** not yet fully verified.
+- **Production readiness:** not established.
+
+The project is therefore an **advanced development prototype**, not yet a completed production system.
+
+## 9. Development environment
+
+The project has been developed and tested in a Windows environment using a Python virtual environment.
+
+Example test command:
+
+```powershell
+python -m pytest -v
 ```
 
-### 4. Install Ollama
+Run focused tests while developing individual components, for example:
 
-Download and install Ollama from:
-
-https://ollama.com/
-
-Download the selected models:
-
-```bash
-ollama pull qwen2.5:3b
-
-ollama pull phi3:latest
+```powershell
+python -m pytest tests/test_agent_response_generator.py -v
 ```
 
-Verify the installation:
+Use the repository's actual configuration files for installation, environment variables, model setup and application startup. Do not commit `.env` files, API keys, encryption keys, JWT secrets or other credentials to version control.
 
-```bash
-ollama list
-```
+## 10. Project goals
 
-Check model capabilities:
+The long-term goal is to deliver a modular, local-first AI security agent that combines:
 
-```bash
-ollama show qwen2.5:3b
-```
+1. Secure retrieval of authorized knowledge.
+2. Local LLM-based reasoning and response generation.
+3. Permission-controlled tool execution.
+4. Observable and bounded agent execution.
+5. Evaluation and human approval where appropriate.
+
+The guiding principle is that **agent capability must not bypass the security model**. Retrieval, context construction and tool execution must preserve authorization boundaries.
 
 ---
 
-## Configuration
-
-The application requires configuration of its security credentials and local AI provider.
-
-Configuration should be stored in environment variables or a local `.env` file.
-
-Example configuration template:
-
-```env
-OLLAMA_HOST=http://localhost:11434
-
-OLLAMA_MODEL=qwen2.5:3b
-
-JWT_SECRET_KEY=your-generated-secret
-
-DATABASE_URL=your-database-configuration
-```
-
-**Security recommendations:**
-
-- Never commit `.env` files.
-- Never publish authentication secrets.
-- Generate unique cryptographic secrets.
-- Use strong passwords.
-- Protect encrypted database and vector-store files.
-- Do not expose local AI services to untrusted networks.
-
-The exact variable names should match the application's configuration implementation.
-
----
-
-## Running the Project
-
-The execution entry point depends on the currently integrated application version.
-
-For the existing application:
-
-```bash
-python app.py
-```
-
-For test execution:
-
-```bash
-python -m pytest tests/ -v
-```
-
----
-
-## Testing
-
-Testing is an important part of the development process.
-
-The project uses Pytest to validate individual components and their interactions.
-
-Example commands:
-
-```bash
-python -m pytest tests/test_tool_permissions.py -v
-```
-
-```bash
-python -m pytest tests/test_ollama_tool_integration.py -v
-```
-
-```bash
-python -m pytest tests/ -v
-```
-
-Testing priorities include:
-
-- Authentication and authorization.
-- Document access control.
-- Vector database encryption.
-- Retrieval correctness.
-- Prompt injection detection.
-- Jailbreak detection.
-- Ollama communication.
-- Tool-call parsing.
-- Tool permission enforcement.
-- Tool execution.
-- Agent workflow security.
-
----
-
-## Development Roadmap
-
-The development process is divided into several stages.
-
-| Stage | Description | Status |
-|---|---|---|
-| 1 | Secure RAG Foundation and Integration | In Progress |
-| 2 | Ollama Integration | In Progress |
-| 3 | Tool Registry and Permissions | In Progress |
-| 4 | Agent Core | Planned |
-| 5 | Reason → Act → Observe | Planned |
-| 6 | Planning and Agent Memory | Planned |
-| 7 | Human-in-the-Loop | Planned |
-| 8 | Security Validation and Monitoring | Planned |
-| 9 | Integration and End-to-End Testing | Planned |
-| 10 | Documentation and Release | Planned |
-
-### Immediate Development Priorities
-
-1. Complete the Ollama tool-call integration tests.
-2. Finalize Tool Bridge.
-3. Verify the complete Tool Registry → Tool Executor execution path.
-4. Connect the LLM to the tool execution layer.
-5. Implement the first functional Agent Core.
-6. Introduce the Reason → Act → Observe workflow.
-
----
-
-## Planned Agent Capabilities
-
-The long-term vision includes several specialized tools.
-
-### Security Analyzer
-
-Potential capabilities:
-
-- Security configuration analysis.
-- Identification of suspicious activity.
-- Basic security assessment.
-- Interpretation of security-related information.
-
-### Log Analyzer
-
-Potential capabilities:
-
-- Log file analysis.
-- Error identification.
-- Event classification.
-- Detection of suspicious patterns.
-
-### Network Monitor
-
-Potential capabilities:
-
-- Network diagnostics.
-- Connectivity checks.
-- Network information analysis.
-- Integration with existing monitoring utilities.
-
-### System Diagnostics
-
-Potential capabilities:
-
-- System information collection.
-- Resource utilization analysis.
-- Service diagnostics.
-- Basic troubleshooting assistance.
-
-### Secure RAG
-
-Provides the agent with access to an authorized technical knowledge base.
-
-These are planned integrations and should not be interpreted as currently available autonomous capabilities.
-
----
-
-## Project Limitations
-
-WW-P Security AI Agent is an experimental development project.
-
-The current implementation focuses on building and validating its security and AI foundations.
-
-The following capabilities are not yet considered complete:
-
-- Fully autonomous agent execution.
-- Complete multi-step planning.
-- Persistent agent memory.
-- End-to-end Reason-Act-Observe workflow.
-- Production-grade human approval mechanisms.
-- Complete audit and monitoring infrastructure.
-- Comprehensive security validation.
-
-The system should not currently be used as an autonomous production cybersecurity platform.
-
----
-
-## Author
-
-**Piotr Prochnicki**
-
-IT Support | DevOps | AI & Cybersecurity
-
-GitHub:
-
-https://github.com/PiotrIT2015
-
-Project repository:
-
-https://github.com/PiotrIT2015/secure-rag
-
-Portfolio:
-
-https://piotrit2015.github.io/
-
----
-
-## Development Philosophy
-
-WW-P Security AI Agent is developed with a security-first approach.
-
-The project explores how local language models, Retrieval-Augmented Generation, controlled tool execution, and agent-based architectures can work together to support cybersecurity and IT operations.
-
-The goal is not simply to build another AI chatbot.
-
-The goal is to develop a modular, explainable, permission-aware AI assistant capable of interacting with technical environments in a controlled and secure manner.
-
-**Build securely. Automate responsibly. Keep humans in control.**
+**Project:** WW-P Security AI Agent  
+**Repository:** https://github.com/PiotrIT2015/secure-rag  
+**Status date:** 26 November 2026  
+**Development status:** Active — Agent Core / RAG / Response Generator integration
