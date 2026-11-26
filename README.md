@@ -369,7 +369,7 @@ change during development.
 **WW-P Security AI Agent --- Security First. Local AI. Controlled Autonomy.**
 
 ## Technologies
-* Python version: 3.5
+* Python version: 3.10
 * ollama
 * qwen2
 
