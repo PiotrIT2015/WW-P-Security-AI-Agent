@@ -1,5 +1,20 @@
 # WW-P Security AI Agent
 
+## Table of contents
+* [General info](#general-info)
+* [Running](#running)
+* [Technologies](#technologies)
+
+## Running
+
+```
+python app.py
+Secure RAG > Jak działa monitoring bezpieczeństwa?
+```
+
+
+## General info
+
 **Security First. Local AI. Controlled Autonomy.**
 
 WW-P Security AI Agent is a local-first AI agent project focused on
@@ -351,7 +366,11 @@ change during development.
 
 ------------------------------------------------------------------------
 
-**WW-P Security AI Agent --- Security First. Local AI. Controlled
-Autonomy.**
+**WW-P Security AI Agent --- Security First. Local AI. Controlled Autonomy.**
+
+## Technologies
+* Python version: 3.5
+* ollama
+* qwen2
 
 
