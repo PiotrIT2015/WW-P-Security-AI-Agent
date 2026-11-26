@@ -268,6 +268,6 @@ The guiding principle is that **agent capability must not bypass the security mo
 | 3.6.2 Hallucination Detection | ✅ |
 | 3.6.3 Insufficient Context Handling | ✅ |
 | 3.6.4 Citation Correctness Tests | ✅ |
-| 3.6.5 Prompt Injection Response Tests | ⏳ |
+| 3.6.5 Prompt Injection Response Tests | ✅ |
 | 3.6.6 Cross-User Response Security | ⏳ |
 | 3.6.7 Response Generator Integration Tests | ⏳ |
