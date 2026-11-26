@@ -253,3 +253,19 @@ The guiding principle is that **agent capability must not bypass the security mo
 **Repository:** https://github.com/PiotrIT2015/secure-rag  
 **Status date:** 26 November 2026  
 **Development status:** Active — Agent Core / RAG / Response Generator integration
+
+| Etap | Status |
+|---|---|
+| Secure RAG – podstawowa infrastruktura | ✅ |
+| Tool Registry i Tool Executor | ✅ |
+| Tool Call Parser i Execution Bridge | ✅ |
+| Agent Core i Execution Loop | ✅ |
+| RAG Adapter i Context Builder | ✅ |
+| RAG Integration i E2E | ✅ |
+| 3.6.1 Response Quality Tests | ✅ |
+| 3.6.2 Hallucination Detection | ✅ |
+| 3.6.3 Insufficient Context Handling | ✅ |
+| **3.6.4 Citation Correctness** | Do realizacji |
+| 3.6.5 Prompt Injection Response Tests | Do realizacji |
+| 3.6.6 Cross-User Response Security | Do realizacji |
+| 3.6.7 Response Generator Integration Tests | Do realizacji |
